@@ -60,7 +60,7 @@ jobs:
           SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
         run: |
           mkdir -p "outputs/release-$APP_VERSION"
-          ditto "outputs/AI看剧伴侣-$APP_VERSION.dmg" "outputs/release-$APP_VERSION/AI看剧伴侣-$APP_VERSION.dmg"
+          ditto "outputs/AI看剧伴侣-$APP_VERSION.dmg" "outputs/release-$APP_VERSION/AI-Viewing-Companion-$APP_VERSION.dmg"
           printf '%s' "$SPARKLE_PRIVATE_KEY" | Vendor/Tools/Sparkle/bin/generate_appcast \
             --ed-key-file - \
             --download-url-prefix "https://github.com/$GITHUB_REPOSITORY/releases/download/$RELEASE_TAG/" \
@@ -75,7 +75,7 @@ jobs:
           APP_VERSION: ${{ inputs.version }}
         run: |
           gh release create "v$APP_VERSION" \
-            "outputs/release-$APP_VERSION/AI看剧伴侣-$APP_VERSION.dmg" \
+            "outputs/release-$APP_VERSION/AI-Viewing-Companion-$APP_VERSION.dmg" \
             "outputs/release-$APP_VERSION/appcast.xml" \
             --repo "$GITHUB_REPOSITORY" \
             --title "AI看剧伴侣 $APP_VERSION" \

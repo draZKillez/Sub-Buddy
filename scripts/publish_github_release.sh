@@ -10,6 +10,7 @@ SPARKLE_ACCOUNT="${SPARKLE_KEY_ACCOUNT:-com.mkvsubtitletranslator.mac}"
 SPARKLE_TOOL="$PROJECT_DIR/Vendor/Tools/Sparkle/bin/generate_appcast"
 DMG="$PROJECT_DIR/outputs/AI看剧伴侣-$VERSION.dmg"
 RELEASE_DIR="$PROJECT_DIR/outputs/release-$VERSION"
+RELEASE_DMG="$RELEASE_DIR/AI-Viewing-Companion-$VERSION.dmg"
 
 if [[ -z "$REPOSITORY" || "$REPOSITORY" != */* ]]; then
   print -u2 "请设置 GITHUB_REPOSITORY=你的用户名/仓库名"
@@ -24,7 +25,7 @@ GITHUB_REPOSITORY="$REPOSITORY" APP_VERSION="$VERSION" APP_BUILD_NUMBER="$BUILD_
   zsh "$PROJECT_DIR/scripts/package_dmg.sh"
 
 mkdir -p "$RELEASE_DIR"
-/usr/bin/ditto "$DMG" "$RELEASE_DIR/${DMG:t}"
+/usr/bin/ditto "$DMG" "$RELEASE_DMG"
 "$SPARKLE_TOOL" \
   --account "$SPARKLE_ACCOUNT" \
   --download-url-prefix "https://github.com/$REPOSITORY/releases/download/$TAG/" \
@@ -33,7 +34,7 @@ mkdir -p "$RELEASE_DIR"
   "$RELEASE_DIR"
 
 gh release create "$TAG" \
-  "$RELEASE_DIR/${DMG:t}" \
+  "$RELEASE_DMG" \
   "$RELEASE_DIR/appcast.xml" \
   --repo "$REPOSITORY" \
   --title "AI看剧伴侣 $VERSION" \
