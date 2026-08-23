@@ -1,6 +1,6 @@
 # AI看剧伴侣 / AI Viewing Companion iOS
 
-iOS 0.3.2 面向 LiveContainer 真机测试，最低 iOS/iPadOS 16，输出未签名 arm64 IPA。当前核心是单文件手动字幕翻译，不含 Codex 自动翻译、文件夹队列或 MKV 重新封装。
+iOS 0.4.0 面向 LiveContainer 真机测试，最低 iOS/iPadOS 16，输出未签名 arm64 IPA。当前核心是单文件手动字幕翻译，不含 Codex 自动翻译、文件夹队列或 MKV 重新封装。
 
 ## 工作流
 
