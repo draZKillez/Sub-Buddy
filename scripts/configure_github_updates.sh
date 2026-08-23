@@ -30,15 +30,18 @@ if [[ "$PUBLIC_KEY" != "$PLIST_PUBLIC_KEY" ]]; then
   exit 3
 fi
 
-PRIVATE_KEY_FILE="$(mktemp "${TMPDIR:-/tmp}/ai-viewing-companion-sparkle.XXXXXX")"
+PRIVATE_KEY_DIRECTORY="$(mktemp -d "${TMPDIR:-/tmp}/ai-viewing-companion-sparkle.XXXXXX")"
+PRIVATE_KEY_FILE="$PRIVATE_KEY_DIRECTORY/private-key"
 cleanup() {
-  if [[ -n "${PRIVATE_KEY_FILE:-}" && "$PRIVATE_KEY_FILE" == *ai-viewing-companion-sparkle.* ]]; then
+  if [[ -n "${PRIVATE_KEY_DIRECTORY:-}" && "$PRIVATE_KEY_DIRECTORY" == *ai-viewing-companion-sparkle.* ]]; then
     /bin/rm -f "$PRIVATE_KEY_FILE"
+    /bin/rmdir "$PRIVATE_KEY_DIRECTORY" 2>/dev/null || true
   fi
 }
 trap cleanup EXIT INT TERM
-/bin/chmod 600 "$PRIVATE_KEY_FILE"
+/bin/chmod 700 "$PRIVATE_KEY_DIRECTORY"
 "$GENERATE_KEYS" --account "$SPARKLE_ACCOUNT" -x "$PRIVATE_KEY_FILE" >/dev/null
+/bin/chmod 600 "$PRIVATE_KEY_FILE"
 gh secret set SPARKLE_PRIVATE_KEY --repo "$REPOSITORY" < "$PRIVATE_KEY_FILE"
 
 print "已为 $REPOSITORY 配置 SPARKLE_PRIVATE_KEY。"
