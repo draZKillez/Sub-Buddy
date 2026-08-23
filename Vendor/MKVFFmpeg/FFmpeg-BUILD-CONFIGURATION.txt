@@ -1,0 +1,9 @@
+FFmpeg version: 8.1.2
+Source: https://ffmpeg.org/releases/ffmpeg-8.1.2.tar.xz
+SHA-256: 464beb5e7bf0c311e68b45ae2f04e9cc2af88851abb4082231742a74d97b524c
+
+The reproducible configure command is maintained in scripts/build_ffmpeg_ios.sh.
+The build deliberately omits --enable-gpl and --enable-nonfree, disables
+external codecs and network support, and enables only local-file Matroska
+subtitle inspection/extraction dependencies, including the LGPL dvdsub
+decoder used for local VobSub OCR.

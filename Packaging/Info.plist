@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleDevelopmentRegion</key>
+	<string>zh-Hans</string>
+    <key>CFBundleDisplayName</key>
+    <string>AI看剧伴侣</string>
+    <key>CFBundleExecutable</key>
+    <string>MKVSubtitleTranslator</string>
+    <key>CFBundleIdentifier</key>
+    <string>com.mkvsubtitletranslator.mac</string>
+    <key>CFBundleIconFile</key>
+    <string>AppIcon</string>
+    <key>CFBundleInfoDictionaryVersion</key>
+    <string>6.0</string>
+    <key>CFBundleName</key>
+    <string>AI Viewing Companion</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>CFBundleShortVersionString</key>
+	<string>0.7.0</string>
+    <key>CFBundleVersion</key>
+	<string>17</string>
+    <key>LSApplicationCategoryType</key>
+    <string>public.app-category.video</string>
+    <key>LSMinimumSystemVersion</key>
+    <string>14.0</string>
+    <key>NSHighResolutionCapable</key>
+    <true/>
+    <key>NSSupportsAutomaticGraphicsSwitching</key>
+    <true/>
+    <key>NSHumanReadableCopyright</key>
+    <string>Copyright © 2026 AI Viewing Companion</string>
+    <key>SUFeedURL</key>
+    <string>https://github.com/OWNER/REPOSITORY/releases/latest/download/appcast.xml</string>
+    <key>SUPublicEDKey</key>
+    <string>4ZNtZIMmOFQcLxKhS8k3YjmFtgybinlJbnI+HHOAvx8=</string>
+    <key>SUEnableAutomaticChecks</key>
+    <true/>
+    <key>SUAutomaticallyUpdate</key>
+    <true/>
+    <key>SUScheduledCheckInterval</key>
+    <integer>86400</integer>
+</dict>
+</plist>

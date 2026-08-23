@@ -1,0 +1,11 @@
+FFmpeg version: 8.1.2
+Targets: arm64-apple-macosx14.0 and x86_64-apple-macosx14.0 (Universal 2)
+Source: https://ffmpeg.org/releases/ffmpeg-8.1.2.tar.xz
+SHA-256: 464beb5e7bf0c311e68b45ae2f04e9cc2af88851abb4082231742a74d97b524c
+
+The reproducible configure options are maintained in scripts/build_ffmpeg_macos.sh.
+This build deliberately disables GPL, nonfree, network access, device input,
+automatic external-library detection, and unrelated codecs/formats. It enables
+only the local file/pipe protocols and the Matroska, SRT, ASS/SSA, WebVTT and
+PGS and VobSub components needed for inspection, subtitle extraction, local
+bitmap decoding and stream-copy muxing.
