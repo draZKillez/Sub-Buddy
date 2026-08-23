@@ -3,34 +3,64 @@ import SwiftUI
 import UniformTypeIdentifiers
 import MKVSubtitleCore
 
+private enum WorkspaceStep: Int, CaseIterable, Identifiable {
+    case media
+    case subtitles
+    case settings
+    case generate
+    case complete
+
+    var id: Int { rawValue }
+
+    var title: String {
+        switch self {
+        case .media: return AppInterfaceLanguage.localized("选择影片")
+        case .subtitles: return AppInterfaceLanguage.localized("选择字幕")
+        case .settings: return AppInterfaceLanguage.localized("翻译设置")
+        case .generate: return AppInterfaceLanguage.localized("生成字幕")
+        case .complete: return AppInterfaceLanguage.localized("完成")
+        }
+    }
+
+    var systemImage: String {
+        switch self {
+        case .media: return "film"
+        case .subtitles: return "captions.bubble"
+        case .settings: return "slider.horizontal.3"
+        case .generate: return "wand.and.stars"
+        case .complete: return "checkmark.circle"
+        }
+    }
+}
+
 struct ContentView: View {
     @ObservedObject var viewModel: AppViewModel
     @EnvironmentObject private var updateController: UpdateController
     @AppStorage(AppInterfaceLanguage.preferenceKey) private var interfaceLanguage: AppInterfaceLanguage = .simplifiedChinese
     @State private var isDropTargeted = false
+    @State private var workspaceStep: WorkspaceStep = .media
 
     var body: some View {
-        ScrollView {
-            VStack(spacing: 16) {
-                header
-                updatePanel
-                dropZone
-                if !viewModel.batchJobs.isEmpty || viewModel.isScanningFolder { batchQueue }
-                toolStatus
-                if let info = viewModel.mediaInfo {
-                    fileInformation(info)
-                    subtitleTracks(info)
-                    movieMetadata
-                    speechRecognition(info)
-                    translationControls
+        HStack(spacing: 0) {
+            workspaceSidebar
+            Divider()
+            VStack(spacing: 0) {
+                workspaceToolbar
+                Divider()
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 16) {
+                        stepHeading
+                        stepContent
+                        if let error = viewModel.errorMessage, workspaceStep != .complete {
+                            errorPanel(error)
+                        }
+                    }
+                    .padding(24)
+                    .frame(maxWidth: 980)
+                    .frame(maxWidth: .infinity, alignment: .top)
+                    .groupBoxStyle(TranslatorCardGroupBoxStyle())
                 }
-                if let error = viewModel.errorMessage { errorPanel(error) }
-                if let output = viewModel.outputURL { completionPanel(output) }
             }
-            .padding(24)
-            .frame(maxWidth: 900)
-            .frame(maxWidth: .infinity)
-            .groupBoxStyle(TranslatorCardGroupBoxStyle())
         }
         .background(Color(nsColor: .windowBackgroundColor))
         .overlay(alignment: .topLeading) {
@@ -39,6 +69,15 @@ struct ContentView: View {
         .environment(\.locale, interfaceLanguage.locale)
         .environment(\.layoutDirection, interfaceLanguage == .arabic ? .rightToLeft : .leftToRight)
         .tint(Color(red: 0.18, green: 0.38, blue: 0.82))
+        .onChange(of: viewModel.mediaInfo) { _, info in
+            if info != nil, workspaceStep == .media { workspaceStep = .subtitles }
+        }
+        .onChange(of: viewModel.outputURL) { _, output in
+            if output != nil { workspaceStep = .complete }
+        }
+        .onChange(of: interfaceLanguage) { _, _ in
+            viewModel.interfaceLanguageDidChange()
+        }
         .alert(AppInterfaceLanguage.localized("输出文件已存在"), isPresented: $viewModel.showOverwriteConfirmation) {
             Button("取消", role: .cancel) {}
             Button("覆盖输出文件", role: .destructive) { viewModel.startTranslation(overwrite: true) }
@@ -77,22 +116,80 @@ struct ContentView: View {
         }
     }
 
-    private var header: some View {
-        HStack {
-            ZStack {
-                RoundedRectangle(cornerRadius: 16)
-                    .fill(.white.opacity(0.18))
+    private var workspaceSidebar: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            HStack(spacing: 11) {
                 Image(nsImage: NSApplication.shared.applicationIconImage)
                     .resizable()
                     .scaledToFit()
-                    .clipShape(RoundedRectangle(cornerRadius: 13))
+                    .clipShape(RoundedRectangle(cornerRadius: 10))
+                    .frame(width: 42, height: 42)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("AI看剧伴侣").font(.headline)
+                    Text("AI Viewing Companion")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
             }
-            .frame(width: 66, height: 66)
-            VStack(alignment: .leading, spacing: 5) {
-                Text("AI看剧伴侣").font(.largeTitle.bold()).foregroundStyle(.white)
-                Text("AI Viewing Companion · 本地字幕生成与翻译").foregroundStyle(.white.opacity(0.82))
+            .padding(.horizontal, 16)
+
+            VStack(spacing: 6) {
+                ForEach(WorkspaceStep.allCases) { step in
+                    Button {
+                        if stepIsAvailable(step) { workspaceStep = step }
+                    } label: {
+                        HStack(spacing: 11) {
+                            ZStack {
+                                Circle()
+                                    .fill(step == workspaceStep ? Color.accentColor : Color.secondary.opacity(0.14))
+                                if step == .complete, viewModel.outputURL != nil {
+                                    Image(systemName: "checkmark")
+                                } else {
+                                    Text("\(step.rawValue + 1)")
+                                }
+                            }
+                            .foregroundStyle(step == workspaceStep ? .white : .secondary)
+                            .frame(width: 28, height: 28)
+                            Text(step.title)
+                                .fontWeight(step == workspaceStep ? .semibold : .regular)
+                            Spacer()
+                        }
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 10)
+                        .contentShape(Rectangle())
+                        .background(
+                            step == workspaceStep ? Color.accentColor.opacity(0.1) : Color.clear,
+                            in: RoundedRectangle(cornerRadius: 10)
+                        )
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(!stepIsAvailable(step))
+                    .opacity(stepIsAvailable(step) ? 1 : 0.45)
+                }
             }
+            .padding(.horizontal, 10)
+
             Spacer()
+            sidebarStatus
+                .padding(.horizontal, 16)
+            Text(AppInterfaceLanguage.localizedFormat("版本 %@", updateController.currentVersion))
+                .font(.caption2.monospacedDigit())
+                .foregroundStyle(.tertiary)
+                .padding(.horizontal, 16)
+        }
+        .padding(.vertical, 16)
+        .frame(width: 225)
+        .background(Color(nsColor: .controlBackgroundColor).opacity(0.72))
+    }
+
+    private var workspaceToolbar: some View {
+        HStack(spacing: 12) {
+            Label(workspaceStep.title, systemImage: workspaceStep.systemImage)
+                .font(.headline)
+            Spacer()
+            Button("检查更新…") { updateController.checkForUpdates() }
+                .buttonStyle(.bordered)
+                .disabled(!updateController.canCheckForUpdates)
             Menu {
                 Picker("界面语言", selection: $interfaceLanguage) {
                     ForEach(AppInterfaceLanguage.allCases) { language in
@@ -101,46 +198,236 @@ struct ContentView: View {
                 }
             } label: {
                 Label(interfaceLanguage.nativeName, systemImage: "globe")
-                    .foregroundStyle(.white)
             }
-            .menuStyle(.borderlessButton)
+            .disabled(
+                viewModel.isWorking || viewModel.isSpeechRecognizing || viewModel.isBatchProcessing ||
+                viewModel.isInstallingFFmpeg || viewModel.isInstallingMKVToolNix ||
+                viewModel.downloadingWhisperModel != nil
+            )
             .help(AppInterfaceLanguage.localized("界面语言"))
         }
-        .padding(20)
-        .background(
-            LinearGradient(
-                colors: [Color(red: 0.16, green: 0.32, blue: 0.72), Color(red: 0.35, green: 0.22, blue: 0.68)],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            ),
-            in: RoundedRectangle(cornerRadius: 20)
-        )
+        .padding(.horizontal, 20)
+        .frame(height: 58)
     }
 
-    private var updatePanel: some View {
-        HStack(spacing: 12) {
-            Image(systemName: "arrow.triangle.2.circlepath.circle.fill")
+    private var stepHeading: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            Text(workspaceStep.title).font(.title2.bold())
+            Text(stepDescription)
+                .font(.callout)
+                .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    @ViewBuilder
+    private var stepContent: some View {
+        switch workspaceStep {
+        case .media:
+            dropZone
+            if viewModel.isInspecting {
+                HStack(spacing: 10) {
+                    ProgressView().controlSize(.small)
+                    Text("正在读取 MKV 轨道")
+                }
+                .padding(12)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Color.accentColor.opacity(0.07), in: RoundedRectangle(cornerRadius: 10))
+            }
+            if !viewModel.batchJobs.isEmpty || viewModel.isScanningFolder { batchQueue }
+            DisclosureGroup(AppInterfaceLanguage.localized("运行环境和连接")) {
+                toolStatus.padding(.top, 10)
+            }
+        case .subtitles:
+            if let info = viewModel.mediaInfo {
+                mediaSummary(info)
+                subtitleTracks(info)
+                DisclosureGroup(AppInterfaceLanguage.localized("没有合适字幕？从英语音轨生成")) {
+                    speechRecognition(info).padding(.top, 10)
+                }
+                stepNavigation(back: .media, next: .settings, nextEnabled: viewModel.selectedTrack != nil)
+            }
+        case .settings:
+            if let info = viewModel.mediaInfo { mediaSummary(info) }
+            movieMetadata
+            translationSettings
+            stepNavigation(
+                back: .subtitles,
+                next: .generate,
+                nextEnabled: viewModel.selectedTrack != nil && viewModel.chunkSizeIsValid && viewModel.languagePairIsValid
+            )
+        case .generate:
+            generationSummary
+            generationControls
+            if !viewModel.isWorking {
+                stepNavigation(back: .settings, next: nil, nextEnabled: false)
+            }
+        case .complete:
+            if let output = viewModel.outputURL {
+                completionPanel(output)
+                HStack {
+                    Button("返回翻译设置") { workspaceStep = .settings }
+                    Spacer()
+                    Button("选择另一部影片…") {
+                        workspaceStep = .media
+                        chooseFile()
+                    }
+                    .buttonStyle(.borderedProminent)
+                }
+            }
+        }
+    }
+
+    private var stepDescription: String {
+        switch workspaceStep {
+        case .media:
+            return AppInterfaceLanguage.localized("拖入一部影片或选择文件，应用只读取媒体信息。")
+        case .subtitles:
+            return AppInterfaceLanguage.localized("选择要翻译的字幕轨道；图片字幕会在本机 OCR。")
+        case .settings:
+            return AppInterfaceLanguage.localized("确认语言、翻译方式与输出格式，片名信息均可修改。")
+        case .generate:
+            return AppInterfaceLanguage.localized("检查输出摘要，然后开始生成；已完成进度会保存在本机。")
+        case .complete:
+            return AppInterfaceLanguage.localized("字幕已经生成，原始影片没有被替换。")
+        }
+    }
+
+    private func stepIsAvailable(_ step: WorkspaceStep) -> Bool {
+        switch step {
+        case .media: return true
+        case .subtitles: return viewModel.mediaInfo != nil
+        case .settings: return viewModel.mediaInfo != nil && viewModel.selectedTrack != nil
+        case .generate:
+            return viewModel.selectedTrack != nil && viewModel.chunkSizeIsValid && viewModel.languagePairIsValid
+        case .complete: return viewModel.outputURL != nil
+        }
+    }
+
+    private var sidebarStatus: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            statusRow(
+                title: "媒体工具",
+                ready: viewModel.ffmpegReady,
+                detail: viewModel.ffmpegReady ? "已就绪" : "需要处理"
+            )
+            statusRow(
+                title: viewModel.workflowMode == .automatic ? "Codex" : "本地翻译",
+                ready: viewModel.selectedTranslationProviderIsReady,
+                detail: viewModel.selectedTranslationProviderIsReady ? "已就绪" : "尚未就绪"
+            )
+        }
+        .font(.caption)
+    }
+
+    private func statusRow(title: String, ready: Bool, detail: String) -> some View {
+        HStack(spacing: 7) {
+            Circle()
+                .fill(ready ? Color.green : Color.orange)
+                .frame(width: 7, height: 7)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(title).fontWeight(.medium)
+                Text(detail).foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private func mediaSummary(_ info: MediaInfo) -> some View {
+        HStack(spacing: 14) {
+            Image(systemName: "film.stack")
                 .font(.title2)
                 .foregroundStyle(.tint)
-            VStack(alignment: .leading, spacing: 2) {
-                Text("软件更新")
+                .frame(width: 42, height: 42)
+                .background(Color.accentColor.opacity(0.1), in: RoundedRectangle(cornerRadius: 10))
+            VStack(alignment: .leading, spacing: 4) {
+                Text(info.fileURL.lastPathComponent)
                     .font(.headline)
-                Text(updateController.configurationMessage)
+                    .lineLimit(1)
+                HStack(spacing: 6) {
+                    if let duration = info.durationSeconds {
+                        Text(Self.mediaDuration(duration))
+                    }
+                    Text(AppInterfaceLanguage.localizedFormat("%d 条字幕轨道", info.subtitleTracks.count))
+                    if let track = viewModel.selectedTrack {
+                        Text(AppInterfaceLanguage.localizedFormat(
+                            "已选择轨道 %d · %@ · %@",
+                            track.streamIndex,
+                            track.language,
+                            track.codec
+                        ))
+                    }
+                }
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            }
+            Spacer()
+            Button("更换影片…") {
+                workspaceStep = .media
+                chooseFile()
+            }
+            .disabled(viewModel.isMediaBusy || viewModel.isInspecting)
+        }
+        .padding(14)
+        .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 12))
+        .overlay {
+            RoundedRectangle(cornerRadius: 12)
+                .stroke(Color.primary.opacity(0.07), lineWidth: 1)
+        }
+    }
+
+    private var generationSummary: some View {
+        HStack(alignment: .top, spacing: 16) {
+            Image(systemName: viewModel.deliveryMode == .sidecarSRT ? "doc.badge.plus" : "film.stack")
+                .font(.system(size: 28))
+                .foregroundStyle(.tint)
+                .frame(width: 52, height: 52)
+                .background(Color.accentColor.opacity(0.1), in: RoundedRectangle(cornerRadius: 12))
+            VStack(alignment: .leading, spacing: 5) {
+                Text(viewModel.defaultOutputURL?.lastPathComponent ?? viewModel.temporarySubtitleFileName)
+                    .font(.headline)
+                    .textSelection(.enabled)
+                Text(AppInterfaceLanguage.localizedFormat(
+                    "%@ → %@ · %@ · %@",
+                    viewModel.sourceLanguage.displayName,
+                    viewModel.targetLanguage.displayName,
+                    viewModel.workflowMode.displayName,
+                    viewModel.subtitleOutputMode.displayName
+                ))
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                Label("本地处理，不上传视频或登录凭据", systemImage: "lock.shield.fill")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
             Spacer()
-            Text("\(AppInterfaceLanguage.localized("版本")) \(updateController.currentVersion)")
-                .font(.caption.monospacedDigit())
-                .foregroundStyle(.secondary)
-            Button("检查更新…") {
-                updateController.checkForUpdates()
-            }
-            .buttonStyle(.bordered)
-            .disabled(!updateController.canCheckForUpdates)
+            Button("修改设置") { workspaceStep = .settings }
+                .disabled(viewModel.isWorking)
         }
-        .padding(14)
-        .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 12))
+        .padding(16)
+        .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 14))
+    }
+
+    private func stepNavigation(back: WorkspaceStep?, next: WorkspaceStep?, nextEnabled: Bool) -> some View {
+        HStack {
+            if let back {
+                Button("返回上一步") { workspaceStep = back }
+            }
+            Spacer()
+            if let next {
+                Button(AppInterfaceLanguage.localizedFormat("继续：%@", next.title)) {
+                    workspaceStep = next
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
+                .disabled(!nextEnabled)
+            }
+        }
+        .padding(.top, 2)
+    }
+
+    private static func mediaDuration(_ seconds: Double) -> String {
+        let total = max(0, Int(seconds.rounded()))
+        return String(format: "%02d:%02d:%02d", total / 3600, (total / 60) % 60, total % 60)
     }
 
     @ViewBuilder
@@ -202,7 +489,12 @@ struct ContentView: View {
                             .foregroundStyle(.secondary)
                             .lineLimit(1)
                         Spacer()
-                        Text("完成 \(viewModel.completedBatchJobCount)/\(viewModel.batchJobs.count) · 失败 \(viewModel.failedBatchJobCount)")
+                        Text(AppInterfaceLanguage.localizedFormat(
+                            "完成 %d/%d · 失败 %d",
+                            viewModel.completedBatchJobCount,
+                            viewModel.batchJobs.count,
+                            viewModel.failedBatchJobCount
+                        ))
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
@@ -392,7 +684,10 @@ struct ContentView: View {
             Grid(alignment: .leading, horizontalSpacing: 18, verticalSpacing: 7) {
                 GridRow { Text("文件").foregroundStyle(.secondary); Text(info.fileURL.path).textSelection(.enabled) }
                 GridRow { Text("容器标题").foregroundStyle(.secondary); Text(info.containerTitle ?? "未设置") }
-                GridRow { Text("字幕轨道").foregroundStyle(.secondary); Text("\(info.subtitleTracks.count) 条") }
+                GridRow {
+                    Text("字幕轨道").foregroundStyle(.secondary)
+                    Text(AppInterfaceLanguage.localizedFormat("%d 条", info.subtitleTracks.count))
+                }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.vertical, 5)
@@ -515,9 +810,21 @@ struct ContentView: View {
                     }
 
                     VStack(alignment: .leading, spacing: 5) {
-                        Label("优势：\(viewModel.whisperModel.strengths)", systemImage: "checkmark.circle")
-                        Label("不足：\(viewModel.whisperModel.limitations)", systemImage: "exclamationmark.circle")
-                        Label("下载：\(viewModel.whisperModel.downloadSizeText)；仅第一次使用需要下载，识别过程完全在本机。", systemImage: "internaldrive")
+                        Label(
+                            AppInterfaceLanguage.localizedFormat("优势：%@", viewModel.whisperModel.strengths),
+                            systemImage: "checkmark.circle"
+                        )
+                        Label(
+                            AppInterfaceLanguage.localizedFormat("不足：%@", viewModel.whisperModel.limitations),
+                            systemImage: "exclamationmark.circle"
+                        )
+                        Label(
+                            AppInterfaceLanguage.localizedFormat(
+                                "下载：%@；仅第一次使用需要下载，识别过程完全在本机。",
+                                viewModel.whisperModel.downloadSizeText
+                            ),
+                            systemImage: "internaldrive"
+                        )
                     }
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -538,7 +845,10 @@ struct ContentView: View {
                     }
                     if viewModel.downloadingWhisperModel != nil {
                         ProgressView(value: viewModel.whisperDownloadProgress)
-                        Text("已下载 \(Int((viewModel.whisperDownloadProgress * 100).rounded()))% · 请保持应用开启")
+                        Text(AppInterfaceLanguage.localizedFormat(
+                            "已下载 %d%% · 请保持应用开启",
+                            Int((viewModel.whisperDownloadProgress * 100).rounded())
+                        ))
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
@@ -564,7 +874,10 @@ struct ContentView: View {
                             VStack(alignment: .leading, spacing: 4) {
                                 Text(speechPhaseTitle).font(.headline)
                                 Text(viewModel.speechRecognitionProgress.detail).font(.callout)
-                                Text("完成 \(Int((viewModel.speechRecognitionProgress.fraction * 100).rounded()))% · 大模型和 Intel Mac 所需时间会更长")
+                                Text(AppInterfaceLanguage.localizedFormat(
+                                    "完成 %d%% · 大模型和 Intel Mac 所需时间会更长",
+                                    Int((viewModel.speechRecognitionProgress.fraction * 100).rounded())
+                                ))
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
                             }
@@ -576,7 +889,10 @@ struct ContentView: View {
                     } else {
                         HStack {
                             if let output = viewModel.speechOutputURL {
-                                Label("英文字幕已生成：\(output.lastPathComponent)", systemImage: "checkmark.circle.fill")
+                                Label(
+                                    AppInterfaceLanguage.localizedFormat("英文字幕已生成：%@", output.lastPathComponent),
+                                    systemImage: "checkmark.circle.fill"
+                                )
                                     .foregroundStyle(.green)
                                 Button("在 Finder 中显示") { viewModel.revealSpeechOutput() }
                             }
@@ -601,8 +917,8 @@ struct ContentView: View {
         }
     }
 
-    private var translationControls: some View {
-        GroupBox("翻译与输出") {
+    private var translationSettings: some View {
+        GroupBox("翻译设置") {
             VStack(alignment: .leading, spacing: 12) {
                 LabeledContent("翻译语言") {
                     HStack(spacing: 8) {
@@ -731,7 +1047,22 @@ struct ContentView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 }
-                LabeledContent("输出位置") { Text(viewModel.outputPathText).textSelection(.enabled).foregroundStyle(.secondary) }
+                LabeledContent("输出位置") {
+                    Text(viewModel.outputPathText)
+                        .textSelection(.enabled)
+                        .foregroundStyle(.secondary)
+                }
+                Label("本地处理，不上传视频或登录凭据", systemImage: "lock.shield.fill")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            .padding(.vertical, 5)
+        }
+    }
+
+    private var generationControls: some View {
+        GroupBox("生成字幕") {
+            VStack(alignment: .leading, spacing: 14) {
                 outputExplanation
                 if viewModel.isWorking {
                     if let fraction = viewModel.progress.phaseFraction,
@@ -756,10 +1087,17 @@ struct ContentView: View {
                             Text(progressSummary)
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
-                            Text("累计用时：\(viewModel.elapsedTimeText) · 预计剩余：\(viewModel.estimatedRemainingText)")
+                            Text(AppInterfaceLanguage.localizedFormat(
+                                "累计用时：%@ · 预计剩余：%@",
+                                viewModel.elapsedTimeText,
+                                viewModel.estimatedRemainingText
+                            ))
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
-                            Text("预计完成：\(viewModel.estimatedCompletionText)")
+                            Text(AppInterfaceLanguage.localizedFormat(
+                                "预计完成：%@",
+                                viewModel.estimatedCompletionText
+                            ))
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                         }
@@ -768,25 +1106,32 @@ struct ContentView: View {
                             .buttonStyle(.borderedProminent)
                             .tint(.red)
                     }
+                } else if viewModel.workflowMode == .manual {
+                    ManualTranslationView(viewModel: viewModel)
                 } else {
-                    if viewModel.workflowMode == .manual {
-                        ManualTranslationView(viewModel: viewModel)
-                    } else {
-                        HStack {
-                            Spacer()
-                            Button(viewModel.deliveryMode == .sidecarSRT ? "开始翻译并生成 SRT" : "开始翻译并封装") {
-                                viewModel.requestTranslation()
-                            }
-                                .buttonStyle(.borderedProminent)
-                                .disabled(
-                                    viewModel.selectedTrack == nil || viewModel.isInspecting ||
-                                    !viewModel.ffmpegReady || !viewModel.selectedTranslationProviderIsReady ||
-                                    !viewModel.chunkSizeIsValid || !viewModel.languagePairIsValid
-                                )
+                    HStack {
+                        Label(
+                            viewModel.selectedTranslationProviderIsReady ? "已准备好开始" : "翻译服务尚未就绪",
+                            systemImage: viewModel.selectedTranslationProviderIsReady
+                                ? "checkmark.circle.fill"
+                                : "exclamationmark.triangle.fill"
+                        )
+                        .foregroundStyle(viewModel.selectedTranslationProviderIsReady ? Color.green : Color.orange)
+                        Spacer()
+                        Button(viewModel.deliveryMode == .sidecarSRT ? "开始翻译并生成 SRT" : "开始翻译并封装") {
+                            viewModel.requestTranslation()
                         }
+                        .buttonStyle(.borderedProminent)
+                        .controlSize(.large)
+                        .disabled(
+                            viewModel.selectedTrack == nil || viewModel.isInspecting ||
+                            !viewModel.ffmpegReady || !viewModel.selectedTranslationProviderIsReady ||
+                            !viewModel.chunkSizeIsValid || !viewModel.languagePairIsValid
+                        )
                     }
                 }
-            }.padding(.vertical, 5)
+            }
+            .padding(.vertical, 5)
         }
     }
 
@@ -811,19 +1156,29 @@ struct ContentView: View {
                 Text(deliveryMode == .sidecarSRT ? "SRT 字幕生成完成" : "翻译和无损封装完成").font(.headline)
                 Text(output.lastPathComponent).textSelection(.enabled)
                 if let completion = viewModel.completionTimeText {
-                    Text("累计用时：\(viewModel.elapsedTimeText) · 完成时间：\(completion)")
+                    Text(AppInterfaceLanguage.localizedFormat(
+                        "累计用时：%@ · 完成时间：%@",
+                        viewModel.elapsedTimeText,
+                        completion
+                    ))
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
                 if deliveryMode == .sidecarSRT {
-                    Text("这是独立的\(outputMode.displayName)字幕文件，原始 MKV 没有被重新封装或修改。")
+                    Text(AppInterfaceLanguage.localizedFormat(
+                        "这是独立的%@字幕文件，原始 MKV 没有被重新封装或修改。",
+                        outputMode.displayName
+                    ))
                         .font(.caption)
                         .foregroundStyle(.secondary)
                     Text("字幕位于视频同一目录；简体中文仅译文与视频同名，其他语言或双语会带语言后缀。播放器未自动加载时，请手动选择这个 SRT。")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 } else {
-                    Text("已新增“\(viewModel.trackTitle(for: outputMode))”字幕轨道；原字幕及原始 MKV 均未被替换。")
+                    Text(AppInterfaceLanguage.localizedFormat(
+                        "已新增“%@”字幕轨道；原字幕及原始 MKV 均未被替换。",
+                        viewModel.trackTitle(for: outputMode)
+                    ))
                         .font(.caption)
                         .foregroundStyle(.secondary)
                     Text("用于封装的临时 SRT 已自动清理。")

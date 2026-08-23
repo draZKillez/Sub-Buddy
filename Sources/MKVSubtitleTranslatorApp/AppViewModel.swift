@@ -136,7 +136,7 @@ final class AppViewModel: ObservableObject {
     @Published var speechRecognitionProgress = SpeechRecognitionProgress(
         phase: .extractingAudio,
         fraction: 0,
-        detail: "等待开始"
+        detail: AppInterfaceLanguage.localized("等待开始")
     )
     @Published var speechOutputURL: URL?
     @Published var showSpeechOverwriteConfirmation = false
@@ -202,7 +202,7 @@ final class AppViewModel: ObservableObject {
     }
 
     var speechOutputPathText: String {
-        speechOutputURL?.path ?? defaultSpeechOutputURL?.path ?? "选择 MKV 后自动生成"
+        speechOutputURL?.path ?? defaultSpeechOutputURL?.path ?? AppInterfaceLanguage.localized("选择 MKV 后自动生成")
     }
 
     var ffmpegReady: Bool {
@@ -223,7 +223,7 @@ final class AppViewModel: ObservableObject {
     }
 
     var outputPathText: String {
-        outputURL?.path ?? defaultOutputURL?.path ?? "选择 MKV 后自动生成"
+        outputURL?.path ?? defaultOutputURL?.path ?? AppInterfaceLanguage.localized("选择 MKV 后自动生成")
     }
 
     var defaultOutputURL: URL? {
@@ -244,7 +244,7 @@ final class AppViewModel: ObservableObject {
 
     var temporarySubtitleFileName: String {
         if deliveryMode == .sidecarSRT {
-            return defaultOutputURL?.lastPathComponent ?? "与视频同名.srt"
+            return defaultOutputURL?.lastPathComponent ?? AppInterfaceLanguage.localized("与视频同名.srt")
         }
         return subtitleOutputMode == .bilingual
             ? "\(targetLanguage.outputCode)-bilingual.srt"
@@ -283,20 +283,28 @@ final class AppViewModel: ObservableObject {
     }
 
     var overwriteExplanation: String {
-        deliveryMode == .sidecarSRT
-            ? "只会覆盖已有的同名 SRT，原始 MKV 不会被修改。"
-            : "只会覆盖已有的翻译版 MKV，原始 MKV 永远不会被覆盖。"
+        AppInterfaceLanguage.localized(
+            deliveryMode == .sidecarSRT
+                ? "只会覆盖已有的同名 SRT，原始 MKV 不会被修改。"
+                : "只会覆盖已有的翻译版 MKV，原始 MKV 永远不会被覆盖。"
+        )
     }
 
     var elapsedTimeText: String { Self.durationText(elapsedSeconds) }
 
     var estimatedRemainingText: String {
-        guard let estimatedRemaining else { return "正在收集速度，完成首个有效进度后显示" }
-        return "约 \(Self.durationText(estimatedRemaining.lowerBound))–\(Self.durationText(estimatedRemaining.upperBound))"
+        guard let estimatedRemaining else {
+            return AppInterfaceLanguage.localized("正在收集速度，完成首个有效进度后显示")
+        }
+        return AppInterfaceLanguage.localizedFormat(
+            "约 %@–%@",
+            Self.durationText(estimatedRemaining.lowerBound),
+            Self.durationText(estimatedRemaining.upperBound)
+        )
     }
 
     var estimatedCompletionText: String {
-        guard let estimatedRemaining else { return "计算中" }
+        guard let estimatedRemaining else { return AppInterfaceLanguage.localized("计算中") }
         let formatter = DateFormatter()
         formatter.dateFormat = "HH:mm"
         let lower = formatter.string(from: Date().addingTimeInterval(estimatedRemaining.lowerBound))
@@ -327,6 +335,27 @@ final class AppViewModel: ObservableObject {
             selectedTrackIndex = preferredTrack(in: mediaInfo)?.streamIndex
         }
         Task { await refreshAppleTranslationAvailability() }
+    }
+
+    func interfaceLanguageDidChange() {
+        // Status messages are snapshots. Clear idle snapshots so text from the
+        // previously selected interface language cannot remain on screen.
+        guard !isWorking, !isSpeechRecognizing, downloadingWhisperModel == nil else {
+            objectWillChange.send()
+            return
+        }
+        errorMessage = nil
+        speechRecognitionError = nil
+        manualStatusMessage = ""
+        whisperStatusMessage = ""
+        ffmpegInstallLog = ""
+        mkvToolNixInstallLog = ""
+        speechRecognitionProgress = .init(
+            phase: .extractingAudio,
+            fraction: 0,
+            detail: AppInterfaceLanguage.localized("等待开始")
+        )
+        objectWillChange.send()
     }
 
     func trackTitle(for mode: SubtitleOutputMode) -> String {
@@ -705,7 +734,11 @@ final class AppViewModel: ObservableObject {
         let requestedModel = whisperModel
         downloadingWhisperModel = requestedModel
         whisperDownloadProgress = 0
-        whisperStatusMessage = "正在下载 \(requestedModel.displayName)（\(requestedModel.downloadSizeText)）…"
+        whisperStatusMessage = AppInterfaceLanguage.localizedFormat(
+            "正在下载 %@（%@）…",
+            requestedModel.displayName,
+            requestedModel.downloadSizeText
+        )
         speechRecognitionError = nil
         whisperDownloadTask = Task {
             defer {
@@ -723,12 +756,15 @@ final class AppViewModel: ObservableObject {
                 }
                 guard !Task.isCancelled else { return }
                 whisperDownloadProgress = 1
-                whisperStatusMessage = "\(requestedModel.displayName) 已下载并通过完整性校验。"
+                whisperStatusMessage = AppInterfaceLanguage.localizedFormat(
+                    "%@ 已下载并通过完整性校验。",
+                    requestedModel.displayName
+                )
             } catch is CancellationError {
-                whisperStatusMessage = "已取消模型下载。"
+                whisperStatusMessage = AppInterfaceLanguage.localized("已取消模型下载。")
             } catch {
                 speechRecognitionError = error.localizedDescription
-                whisperStatusMessage = "模型尚未安装，可重新下载。"
+                whisperStatusMessage = AppInterfaceLanguage.localized("模型尚未安装，可重新下载。")
             }
         }
     }
@@ -741,10 +777,16 @@ final class AppViewModel: ObservableObject {
         guard downloadingWhisperModel == nil, !isSpeechRecognizing else { return }
         do {
             try whisperModelStore.delete(whisperModel)
-            whisperStatusMessage = "已删除 \(whisperModel.displayName)，需要时可重新下载。"
+            whisperStatusMessage = AppInterfaceLanguage.localizedFormat(
+                "已删除 %@，需要时可重新下载。",
+                whisperModel.displayName
+            )
             speechRecognitionError = nil
         } catch {
-            speechRecognitionError = "无法删除 Whisper 模型：\(error.localizedDescription)"
+            speechRecognitionError = AppInterfaceLanguage.localizedFormat(
+                "无法删除 Whisper 模型：%@",
+                error.localizedDescription
+            )
         }
     }
 
@@ -783,7 +825,11 @@ final class AppViewModel: ObservableObject {
         isSpeechRecognizing = true
         speechRecognitionError = nil
         speechOutputURL = nil
-        speechRecognitionProgress = .init(phase: .extractingAudio, fraction: 0, detail: "正在提取英语音轨")
+        speechRecognitionProgress = .init(
+            phase: .extractingAudio,
+            fraction: 0,
+            detail: AppInterfaceLanguage.localized("正在提取英语音轨")
+        )
         let modelURL = whisperModelStore.fileURL(for: whisperModel)
         let model = whisperModel
         let prompt = [
@@ -817,7 +863,10 @@ final class AppViewModel: ObservableObject {
                         self?.speechRecognitionProgress = .init(
                             phase: .extractingAudio,
                             fraction: fraction * 0.12,
-                            detail: "正在从音轨 #\(audioTrack.streamIndex) 提取 16 kHz 单声道音频"
+                            detail: AppInterfaceLanguage.localizedFormat(
+                                "正在从音轨 #%d 提取 16 kHz 单声道音频",
+                                audioTrack.streamIndex
+                            )
                         )
                     }
                 }
@@ -844,19 +893,30 @@ final class AppViewModel: ObservableObject {
                 speechRecognitionProgress = .init(
                     phase: .writing,
                     fraction: 0.99,
-                    detail: "正在写入 \(document.cues.count) 条英文字幕"
+                    detail: AppInterfaceLanguage.localizedFormat(
+                        "正在写入 %d 条英文字幕",
+                        document.cues.count
+                    )
                 )
                 try SubtitleWriter().write(document, to: output)
                 speechOutputURL = output
                 speechRecognitionProgress = .init(
                     phase: .writing,
                     fraction: 1,
-                    detail: "已使用 \(model.displayName) 生成 \(document.cues.count) 条英文字幕"
+                    detail: AppInterfaceLanguage.localizedFormat(
+                        "已使用 %@ 生成 %d 条英文字幕",
+                        model.displayName,
+                        document.cues.count
+                    )
                 )
             } catch is CancellationError {
                 guard speechRecognitionGeneration == generation else { return }
                 speechRecognitionError = nil
-                speechRecognitionProgress = .init(phase: .recognizing, fraction: 0, detail: "语音识别已取消")
+                speechRecognitionProgress = .init(
+                    phase: .recognizing,
+                    fraction: 0,
+                    detail: AppInterfaceLanguage.localized("语音识别已取消")
+                )
             } catch {
                 guard speechRecognitionGeneration == generation else { return }
                 speechRecognitionError = error.localizedDescription
@@ -1122,7 +1182,7 @@ final class AppViewModel: ObservableObject {
                         Task { @MainActor in self?.setProgress(PipelineProgress(
                             phase: .ocr, completedChunks: 0, totalChunks: 0,
                             phaseFraction: total > 0 ? Double(completed) / Double(total) : 0,
-                            detail: "Apple Vision 本地 OCR · 完成后可在手动文本中校对",
+                            detail: AppInterfaceLanguage.localized("Apple Vision 本地 OCR · 完成后可在手动文本中校对"),
                             completedItems: completed, totalItems: total
                         )) }
                     }
@@ -1137,7 +1197,10 @@ final class AppViewModel: ObservableObject {
                     }
                     document = ocr.document
                     if !ocr.lowConfidenceCueIDs.isEmpty {
-                        ocrWarning = "OCR 有 \(ocr.lowConfidenceCueIDs.count) 条低置信度内容，请在复制翻译前留意校对。"
+                        ocrWarning = AppInterfaceLanguage.localizedFormat(
+                            "OCR 有 %d 条低置信度内容，请在复制翻译前留意校对。",
+                            ocr.lowConfidenceCueIDs.count
+                        )
                     }
                 }
                 let freshSession = ManualTranslationSession(document: document, chunkSize: chunkSize)
@@ -1159,8 +1222,16 @@ final class AppViewModel: ObservableObject {
                 manualAIResult = nil
                 manualStatusIsError = false
                 manualStatusMessage = ocrWarning ?? (didRestore
-                    ? "已恢复保存进度：完成 \(session.completedChunkCount)/\(session.totalChunkCount) 份。"
-                    : "已拆分为 \(session.totalChunkCount) 份，共 \(session.sourceDocument.cues.count) 条字幕。")
+                    ? AppInterfaceLanguage.localizedFormat(
+                        "已恢复保存进度：完成 %d/%d 份。",
+                        session.completedChunkCount,
+                        session.totalChunkCount
+                    )
+                    : AppInterfaceLanguage.localizedFormat(
+                        "已拆分为 %d 份，共 %d 条字幕。",
+                        session.totalChunkCount,
+                        session.sourceDocument.cues.count
+                    ))
                 updateCurrentBatchJob(
                     status: .processing,
                     detail: "手动翻译完成 \(session.completedChunkCount)/\(session.totalChunkCount) 份",
@@ -1182,7 +1253,7 @@ final class AppViewModel: ObservableObject {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(manualCopyText, forType: .string)
         manualStatusIsError = false
-        manualStatusMessage = "本份字幕和翻译要求已复制，可以粘贴到任意 AI。"
+        manualStatusMessage = AppInterfaceLanguage.localized("本份字幕和翻译要求已复制，可以粘贴到任意 AI。")
     }
 
     func pasteManualTranslation() {
@@ -1190,7 +1261,7 @@ final class AppViewModel: ObservableObject {
         invalidateManualAICheck()
         manualPastedText = text
         manualAIResult = nil
-        manualStatusMessage = "已从剪贴板粘贴，请校验并保存本份。"
+        manualStatusMessage = AppInterfaceLanguage.localized("已从剪贴板粘贴，请校验并保存本份。")
         manualStatusIsError = false
     }
 
@@ -1205,8 +1276,16 @@ final class AppViewModel: ObservableObject {
             manualSourceReviewText = (try? session.currentSourceText()) ?? ""
             manualAIResult = nil
             manualStatusIsError = false
-            let savedMessage = "第 \(savedIndex + 1) 份格式正确并已保存。已完成 \(session.completedChunkCount)/\(session.totalChunkCount) 份。"
-            manualStatusMessage = "格式正确，正在保存第 \(savedIndex + 1) 份进度…"
+            let savedMessage = AppInterfaceLanguage.localizedFormat(
+                "第 %d 份格式正确并已保存。已完成 %d/%d 份。",
+                savedIndex + 1,
+                session.completedChunkCount,
+                session.totalChunkCount
+            )
+            manualStatusMessage = AppInterfaceLanguage.localizedFormat(
+                "格式正确，正在保存第 %d 份进度…",
+                savedIndex + 1
+            )
             updateCurrentBatchJob(
                 status: .processing,
                 detail: "手动翻译完成 \(session.completedChunkCount)/\(session.totalChunkCount) 份",
@@ -1239,8 +1318,8 @@ final class AppViewModel: ObservableObject {
             manualPastedText = ""
             manualSourceReviewText = (try? session.currentSourceText()) ?? ""
             manualStatusIsError = false
-            let savedMessage = "当前分段的 OCR 原文已校对保存；请重新复制本份翻译文本。"
-            manualStatusMessage = "OCR 校对格式正确，正在保存进度…"
+            let savedMessage = AppInterfaceLanguage.localized("当前分段的 OCR 原文已校对保存；请重新复制本份翻译文本。")
+            manualStatusMessage = AppInterfaceLanguage.localized("OCR 校对格式正确，正在保存进度…")
             if let input = selectedFile, let track = selectedTrack {
                 let sourceLanguage = sourceLanguage
                 let targetLanguage = targetLanguage
@@ -1295,14 +1374,17 @@ final class AppViewModel: ObservableObject {
             _ = try ManualSRTValidator().validate(manualPastedText, expectedCues: chunk.cues)
         } catch {
             manualStatusIsError = true
-            manualStatusMessage = "本地格式校验未通过，无需调用 AI：\(error.localizedDescription)"
+            manualStatusMessage = AppInterfaceLanguage.localizedFormat(
+                "本地格式校验未通过，无需调用 AI：%@",
+                error.localizedDescription
+            )
             return
         }
         isCheckingManualFormat = true
         let checkID = UUID()
         manualAICheckID = checkID
         manualAIResult = nil
-        manualStatusMessage = "AI 仅在复核 SRT 格式，不会检查或修改翻译内容…"
+        manualStatusMessage = AppInterfaceLanguage.localized("AI 仅在复核 SRT 格式，不会检查或修改翻译内容…")
         let text = manualPastedText
         let chunkIndex = manualSession?.currentChunkIndex
         manualAICheckTask = Task {
@@ -1321,8 +1403,11 @@ final class AppViewModel: ObservableObject {
                 manualAIResult = result
                 manualStatusIsError = !result.valid
                 manualStatusMessage = result.valid
-                    ? "AI 格式复核通过；未检查翻译内容。"
-                    : "AI 发现格式问题：\(result.issues.joined(separator: "；"))"
+                    ? AppInterfaceLanguage.localized("AI 格式复核通过；未检查翻译内容。")
+                    : AppInterfaceLanguage.localizedFormat(
+                        "AI 发现格式问题：%@",
+                        result.issues.joined(separator: AppInterfaceLanguage.localized("；"))
+                    )
             } catch {
                 guard manualAICheckID == checkID else { return }
                 manualStatusIsError = true
@@ -1336,7 +1421,7 @@ final class AppViewModel: ObservableObject {
         invalidateManualAICheck()
         if discardedRunningCheck {
             manualStatusIsError = false
-            manualStatusMessage = "字幕内容已更改，先前的 AI 格式检查已取消。"
+            manualStatusMessage = AppInterfaceLanguage.localized("字幕内容已更改，先前的 AI 格式检查已取消。")
         }
     }
 
@@ -1423,7 +1508,7 @@ final class AppViewModel: ObservableObject {
                 completedOutputMode = requestedOutputMode
                 completedDeliveryMode = requestedDeliveryMode
                 manualStatusIsError = false
-                manualStatusMessage = "所有分段已合并完成。"
+                manualStatusMessage = AppInterfaceLanguage.localized("所有分段已合并完成。")
                 updateCurrentBatchJob(
                     status: .completed,
                     detail: "已完成 · \(output.lastPathComponent)",
@@ -1701,9 +1786,9 @@ final class AppViewModel: ObservableObject {
         let hours = seconds / 3_600
         let minutes = (seconds % 3_600) / 60
         let remainder = seconds % 60
-        if hours > 0 { return String(format: "%d 小时 %02d 分", hours, minutes) }
-        if minutes > 0 { return String(format: "%d 分 %02d 秒", minutes, remainder) }
-        return "\(remainder) 秒"
+        if hours > 0 { return AppInterfaceLanguage.localizedFormat("%d 小时 %02d 分", hours, minutes) }
+        if minutes > 0 { return AppInterfaceLanguage.localizedFormat("%d 分 %02d 秒", minutes, remainder) }
+        return AppInterfaceLanguage.localizedFormat("%d 秒", remainder)
     }
 
     private func preferredTrack(in info: MediaInfo) -> SubtitleTrack? {

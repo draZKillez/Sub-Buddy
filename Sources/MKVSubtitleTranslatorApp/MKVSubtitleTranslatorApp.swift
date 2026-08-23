@@ -9,7 +9,7 @@ struct MKVSubtitleTranslatorApp: App {
         WindowGroup {
             ContentView(viewModel: viewModel)
                 .environmentObject(updateController)
-                .frame(minWidth: 780, minHeight: 720)
+                .frame(minWidth: 980, minHeight: 720)
         }
         .windowResizability(.contentMinSize)
         .commands {

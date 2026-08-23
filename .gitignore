@@ -12,6 +12,7 @@ outputs/*.dmg
 outputs/*.ipa
 outputs/*.tar.xz
 /outputs/
+/Design/UI-Concepts/
 *.translation-progress.json
 Vendor/Source/
 Vendor/Frameworks/

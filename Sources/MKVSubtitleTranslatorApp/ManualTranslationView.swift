@@ -16,7 +16,10 @@ struct ManualTranslationView: View {
             } else {
                 HStack {
                     VStack(alignment: .leading, spacing: 3) {
-                        Text("先提取所选字幕并按每份 \(viewModel.translationChunkSize) 条拆分。")
+                        Text(AppInterfaceLanguage.localizedFormat(
+                            "先提取所选字幕并按每份 %d 条拆分。",
+                            viewModel.translationChunkSize
+                        ))
                         Text("拆分完成后，可以逐份复制到任意 AI，再把保持 SRT 格式的译文粘贴回来。")
                             .font(.caption)
                             .foregroundStyle(.secondary)
@@ -69,7 +72,12 @@ struct ManualTranslationView: View {
     private func sessionHeader(_ session: ManualTranslationSession) -> some View {
         HStack {
             Label(
-                "已完成 \(session.completedChunkCount)/\(session.totalChunkCount) 份 · 共 \(session.sourceDocument.cues.count) 条",
+                AppInterfaceLanguage.localizedFormat(
+                    "已完成 %d/%d 份 · 共 %d 条",
+                    session.completedChunkCount,
+                    session.totalChunkCount,
+                    session.sourceDocument.cues.count
+                ),
                 systemImage: session.isComplete ? "checkmark.circle.fill" : "square.stack.3d.up"
             )
             .foregroundStyle(session.isComplete ? Color.green : Color.primary)
@@ -90,7 +98,7 @@ struct ManualTranslationView: View {
                             if session.completedChunkIndexes.contains(index) {
                                 Image(systemName: "checkmark.circle.fill")
                             }
-                            Text("第 \(index + 1) 份")
+                            Text(AppInterfaceLanguage.localizedFormat("第 %d 份", index + 1))
                         }
                     }
                     .buttonStyle(.borderedProminent)
@@ -110,8 +118,18 @@ struct ManualTranslationView: View {
 
     private func chunkNavigation(_ chunk: ManualTranslationChunk, session: ManualTranslationSession) -> some View {
         HStack {
-            Text("第 \(chunk.index + 1)/\(session.totalChunkCount) 份").font(.headline)
-            Text("ID \(chunk.cues.first?.id ?? 0)–\(chunk.cues.last?.id ?? 0) · \(chunk.cues.count) 条")
+            Text(AppInterfaceLanguage.localizedFormat(
+                "第 %d/%d 份",
+                chunk.index + 1,
+                session.totalChunkCount
+            ))
+            .font(.headline)
+            Text(AppInterfaceLanguage.localizedFormat(
+                "ID %d–%d · %d 条",
+                chunk.cues.first?.id ?? 0,
+                chunk.cues.last?.id ?? 0,
+                chunk.cues.count
+            ))
                 .foregroundStyle(.secondary)
             Spacer()
             Button("上一份") { viewModel.moveManualChunk(to: max(0, chunk.index - 1)) }

@@ -44,7 +44,10 @@ public enum AppInterfaceLanguage: String, Codable, CaseIterable, Sendable, Ident
     }
 
     public static func localized(_ key: String) -> String {
-        let language = current
+        localized(key, language: current)
+    }
+
+    public static func localized(_ key: String, language: AppInterfaceLanguage) -> String {
         guard language != .simplifiedChinese else { return key }
         if let bundle = localizationBundles[language.rawValue] {
             let translated = bundle.localizedString(forKey: key, value: key, table: nil)
@@ -53,6 +56,10 @@ public enum AppInterfaceLanguage: String, Codable, CaseIterable, Sendable, Ident
         guard language != .english,
               let englishBundle = localizationBundles[AppInterfaceLanguage.english.rawValue] else { return key }
         return englishBundle.localizedString(forKey: key, value: key, table: nil)
+    }
+
+    public static func localizedFormat(_ key: String, _ arguments: CVarArg...) -> String {
+        String(format: localized(key), locale: current.locale, arguments: arguments)
     }
 }
 

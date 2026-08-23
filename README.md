@@ -2,7 +2,7 @@
 
 一款仍在认真打磨中的 macOS 本地字幕工具：从 MKV 提取文字字幕、在本机识别图片字幕或英语音轨，再以手动、Apple 本地翻译或 Codex 三种方式生成目标语言 SRT。
 
-macOS 当前版本为 **0.7.0**，最低支持 macOS 14，安装包为 Universal 2，可运行于 Apple Silicon 和 Intel Mac。仓库也保留一个以手动字幕工作流为核心的 iOS/LiveContainer 0.4.0 测试版。
+macOS 当前版本为 **0.7.1**，最低支持 macOS 14，安装包为 Universal 2，可运行于 Apple Silicon 和 Intel Mac。仓库也保留一个以手动字幕工作流为核心的 iOS/LiveContainer 0.4.0 测试版。
 
 > [!IMPORTANT]
 > 这是一个由真实需求和实际看片测试推动、借助 Codex 协作完成的 **vibe coding 个人项目**。需求取舍、测试素材和最终判断来自维护者，Codex 参与了代码实现、重构、测试和排错。它不是成熟商业产品，也不应被理解为“AI 写完便无需审查”：项目仍可能有遗漏和兼容性问题，欢迎提交可复现的 Issue。请先用副本或可重新取得的媒体测试。
