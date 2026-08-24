@@ -1,3 +1,4 @@
+import Combine
 import Foundation
 import Sparkle
 import MKVSubtitleCore
@@ -6,6 +7,7 @@ import MKVSubtitleCore
 final class UpdateController: ObservableObject {
     let updaterController: SPUStandardUpdaterController
     let isConfigured: Bool
+    @Published private(set) var canCheckForUpdates = false
 
     init(bundle: Bundle = .main) {
         let feed = bundle.object(forInfoDictionaryKey: "SUFeedURL") as? String ?? ""
@@ -18,10 +20,12 @@ final class UpdateController: ObservableObject {
             updaterDelegate: nil,
             userDriverDelegate: nil
         )
-    }
-
-    var canCheckForUpdates: Bool {
-        isConfigured && updaterController.updater.canCheckForUpdates
+        if isConfigured {
+            updaterController.updater
+                .publisher(for: \.canCheckForUpdates)
+                .receive(on: RunLoop.main)
+                .assign(to: &$canCheckForUpdates)
+        }
     }
 
     var configurationMessage: String {

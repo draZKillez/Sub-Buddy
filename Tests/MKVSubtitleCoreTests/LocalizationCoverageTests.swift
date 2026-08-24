@@ -75,6 +75,21 @@ final class LocalizationCoverageTests: XCTestCase {
         }
     }
 
+    func testBundleBrandNameIsLocalizedConsistently() throws {
+        for locale in ["zh-Hans", "en", "es", "fr", "de", "ja", "ko", "pt", "ru", "ar"] {
+            let file = repositoryRoot
+                .appendingPathComponent("Localization")
+                .appendingPathComponent("\(locale).lproj")
+                .appendingPathComponent("InfoPlist.strings")
+            let data = try Data(contentsOf: file)
+            let entries = try XCTUnwrap(
+                PropertyListSerialization.propertyList(from: data, format: nil) as? [String: String]
+            )
+            XCTAssertEqual(entries["CFBundleDisplayName"], "Sub Buddy", locale)
+            XCTAssertEqual(entries["CFBundleName"], "Sub Buddy", locale)
+        }
+    }
+
     private func localizationKeys(in file: URL) throws -> Set<String> {
         let contents = try String(contentsOf: file, encoding: .utf8)
         let expression = try NSRegularExpression(

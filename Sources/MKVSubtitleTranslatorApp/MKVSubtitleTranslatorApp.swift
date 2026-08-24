@@ -2,6 +2,7 @@ import SwiftUI
 
 @main
 struct MKVSubtitleTranslatorApp: App {
+    @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @StateObject private var viewModel = AppViewModel()
     @StateObject private var updateController = UpdateController()
 
