@@ -40,12 +40,35 @@ struct ManualTranslationView: View {
     private func sessionContent(_ session: ManualTranslationSession) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             sessionHeader(session)
+            manualTimingSummary
             chunkPicker(session)
             if viewModel.selectedTrack?.supportsLocalOCR == true { ocrReview }
             if let chunk = session.currentChunk { currentChunkContent(chunk, session: session) }
             statusMessage
             if session.isComplete { completionActions }
         }
+    }
+
+    private var manualTimingSummary: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(AppInterfaceLanguage.localizedFormat(
+                "累计用时：%@ · 整体粗略剩余：%@",
+                viewModel.elapsedTimeText,
+                viewModel.overallEstimatedRemainingText
+            ))
+            Text(AppInterfaceLanguage.localizedFormat(
+                "整体粗略完成：%@",
+                viewModel.overallEstimatedCompletionText
+            ))
+            Text(viewModel.overallEstimateFactorsText)
+                .font(.caption2)
+                .foregroundStyle(.tertiary)
+        }
+        .font(.caption)
+        .foregroundStyle(.secondary)
+        .padding(9)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.secondary.opacity(0.06), in: RoundedRectangle(cornerRadius: 8))
     }
 
     private var ocrReview: some View {

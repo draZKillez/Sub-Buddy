@@ -338,6 +338,14 @@
 "英文字幕已生成：%@" = "English subtitle generated: %@";
 "累计用时：%@ · 预计剩余：%@" = "Elapsed: %@ · Estimated remaining: %@";
 "预计完成：%@" = "Estimated completion: %@";
+"累计用时：%@ · 本阶段预计剩余：%@" = "Elapsed: %@ · Current phase remaining: %@";
+"本阶段预计完成：%@" = "Current phase completion: %@";
+"整体粗略剩余：%@ · 整体粗略完成：%@" = "Overall rough remaining: %@ · Overall rough completion: %@";
+"累计用时：%@ · 整体粗略剩余：%@" = "Elapsed: %@ · Overall rough remaining: %@";
+"整体粗略完成：%@" = "Overall rough completion: %@";
+"正在收集字幕数量和处理速度" = "Measuring subtitle count and processing speed";
+"整体估算受文件大小与磁盘速度、字幕或 OCR 数量、分块数量、翻译模型及网络或服务负载、格式修复或重试影响；阶段切换后会持续校正。" = "The overall estimate varies with file size and disk speed, subtitle or OCR count, batch count, translation model, network or service load, and format repairs or retries; it is recalibrated after each phase.";
+"手动模式还取决于每份内容在外部工具中的翻译、复制和粘贴速度；完成首份后会按实际速度校正。" = "Manual mode also depends on how quickly each batch is translated, copied, and pasted in the external tool; it is recalibrated after the first batch.";
 "累计用时：%@ · 完成时间：%@" = "Elapsed: %@ · Completed at: %@";
 "这是独立的%@字幕文件，原始 MKV 没有被重新封装或修改。" = "This is a standalone %@ subtitle file; the original MKV was not remuxed or modified.";
 "已新增“%@”字幕轨道；原字幕及原始 MKV 均未被替换。" = "A new “%@” subtitle track was added; existing subtitles and the original MKV were not replaced.";

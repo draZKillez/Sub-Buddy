@@ -78,6 +78,14 @@
 "累计用时" = "Tempo decorrido";
 "预计剩余" = "Tempo restante";
 "预计完成" = "Conclusão estimada";
+"累计用时：%@ · 本阶段预计剩余：%@" = "Decorrido: %@ · Restante desta etapa: %@";
+"本阶段预计完成：%@" = "Conclusão estimada desta etapa: %@";
+"整体粗略剩余：%@ · 整体粗略完成：%@" = "Restante total aproximado: %@ · Conclusão total aproximada: %@";
+"累计用时：%@ · 整体粗略剩余：%@" = "Decorrido: %@ · Restante total aproximado: %@";
+"整体粗略完成：%@" = "Conclusão total aproximada: %@";
+"正在收集字幕数量和处理速度" = "Medindo a quantidade de legendas e a velocidade";
+"整体估算受文件大小与磁盘速度、字幕或 OCR 数量、分块数量、翻译模型及网络或服务负载、格式修复或重试影响；阶段切换后会持续校正。" = "A estimativa total depende do tamanho e da velocidade do disco, da quantidade de legendas ou OCR, dos blocos, do modelo, da rede ou do serviço e de reparos ou novas tentativas; ela é recalibrada após cada etapa.";
+"手动模式还取决于每份内容在外部工具中的翻译、复制和粘贴速度；完成首份后会按实际速度校正。" = "O modo manual também depende da velocidade para traduzir, copiar e colar cada bloco na ferramenta externa; a estimativa é recalibrada após o primeiro bloco.";
 "在 Finder 中显示" = "Mostrar no Finder";
 "输出文件已存在" = "O arquivo de saída já existe";
 "覆盖输出文件" = "Substituir arquivo";

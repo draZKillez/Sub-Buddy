@@ -1088,18 +1088,28 @@ struct ContentView: View {
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                             Text(AppInterfaceLanguage.localizedFormat(
-                                "累计用时：%@ · 预计剩余：%@",
+                                "累计用时：%@ · 本阶段预计剩余：%@",
                                 viewModel.elapsedTimeText,
                                 viewModel.estimatedRemainingText
                             ))
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                             Text(AppInterfaceLanguage.localizedFormat(
-                                "预计完成：%@",
+                                "本阶段预计完成：%@",
                                 viewModel.estimatedCompletionText
                             ))
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
+                            Text(AppInterfaceLanguage.localizedFormat(
+                                "整体粗略剩余：%@ · 整体粗略完成：%@",
+                                viewModel.overallEstimatedRemainingText,
+                                viewModel.overallEstimatedCompletionText
+                            ))
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            Text(viewModel.overallEstimateFactorsText)
+                                .font(.caption2)
+                                .foregroundStyle(.tertiary)
                         }
                         Spacer()
                         Button("取消", role: .cancel) { viewModel.cancel() }

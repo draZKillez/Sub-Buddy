@@ -174,6 +174,11 @@ final class AppViewModel: ObservableObject {
     private var cachedManualCopyText = ""
     private var retryableWorkflowErrorMessage: String?
     private var timingEstimator = JobTimingEstimator()
+    private let overallTimingEstimator = OverallWorkflowTimingEstimator()
+    private var selectedFileSizeBytes: Int64?
+    private var manualChunkTimingStartedAt: Date?
+    private var manualLastChunkCompletedAt: Date?
+    private var manualChunkDurations: [TimeInterval] = []
     private let whisperModelStore: WhisperModelStore
     private var whisperDownloadTask: Task<Void, Never>?
     private var speechRecognitionTask: Task<Void, Never>?
@@ -317,11 +322,49 @@ final class AppViewModel: ObservableObject {
     }
 
     var estimatedCompletionText: String {
-        guard let estimatedRemaining else { return AppInterfaceLanguage.localized("计算中") }
-        let now = Date()
-        let lower = Self.shortTimeFormatter.string(from: now.addingTimeInterval(estimatedRemaining.lowerBound))
-        let upper = Self.shortTimeFormatter.string(from: now.addingTimeInterval(estimatedRemaining.upperBound))
-        return lower == upper ? lower : "\(lower)–\(upper)"
+        completionText(for: estimatedRemaining)
+    }
+
+    var overallEstimatedRemaining: EstimatedDurationRange? {
+        if workflowMode == .manual, let manualSession {
+            return overallTimingEstimator.estimatedManualRemaining(
+                remainingChunks: manualSession.totalChunkCount - manualSession.completedChunkCount,
+                observedChunkDurations: manualChunkDurations,
+                deliveryMode: deliveryMode,
+                inputFileSizeBytes: selectedFileSizeBytes
+            )
+        }
+        return overallTimingEstimator.estimatedRemaining(
+            progress: progress,
+            currentPhaseRemaining: estimatedRemaining,
+            translationProfile: translationTimingProfile,
+            chunkSize: translationChunkSize,
+            mediaDurationSeconds: mediaInfo?.durationSeconds,
+            usesOCR: selectedTrack?.supportsLocalOCR == true,
+            deliveryMode: deliveryMode,
+            inputFileSizeBytes: selectedFileSizeBytes
+        )
+    }
+
+    var overallEstimatedRemainingText: String {
+        guard let overallEstimatedRemaining else {
+            return AppInterfaceLanguage.localized("正在收集字幕数量和处理速度")
+        }
+        return AppInterfaceLanguage.localizedFormat(
+            "约 %@–%@",
+            Self.durationText(overallEstimatedRemaining.lowerBound),
+            Self.durationText(overallEstimatedRemaining.upperBound)
+        )
+    }
+
+    var overallEstimatedCompletionText: String {
+        completionText(for: overallEstimatedRemaining)
+    }
+
+    var overallEstimateFactorsText: String {
+        AppInterfaceLanguage.localized(workflowMode == .manual
+            ? "手动模式还取决于每份内容在外部工具中的翻译、复制和粘贴速度；完成首份后会按实际速度校正。"
+            : "整体估算受文件大小与磁盘速度、字幕或 OCR 数量、分块数量、翻译模型及网络或服务负载、格式修复或重试影响；阶段切换后会持续校正。")
     }
 
     var completionTimeText: String? {
@@ -470,6 +513,7 @@ final class AppViewModel: ObservableObject {
         abandonJobTiming()
         isInspecting = true
         selectedFile = url
+        selectedFileSizeBytes = Self.fileSizeBytes(at: url)
         mediaInfo = nil
         selectedTrackIndex = nil
         selectedAudioTrackIndex = nil
@@ -510,6 +554,7 @@ final class AppViewModel: ObservableObject {
         isInspecting = false
         selectedFolder = url
         selectedFile = nil
+        selectedFileSizeBytes = nil
         mediaInfo = nil
         selectedTrackIndex = nil
         selectedAudioTrackIndex = nil
@@ -1268,6 +1313,9 @@ final class AppViewModel: ObservableObject {
                     Self.sameCueStructure($0.sourceDocument.cues, freshSession.sourceDocument.cues)
                 } ?? false
                 let session = didRestore ? savedSession! : freshSession
+                manualChunkTimingStartedAt = Date()
+                manualLastChunkCompletedAt = nil
+                manualChunkDurations = []
                 invalidateManualCopyTextCache()
                 manualSession = session
                 manualPastedText = (try? session.existingTranslationText()) ?? ""
@@ -1327,7 +1375,11 @@ final class AppViewModel: ObservableObject {
         invalidateManualAICheck()
         do {
             let savedIndex = session.currentChunkIndex
+            let previousCompletedCount = session.completedChunkCount
             try session.applyCurrentTranslation(manualPastedText)
+            if session.completedChunkCount > previousCompletedCount {
+                recordManualChunkCompletion()
+            }
             manualSession = session
             manualPastedText = (try? session.existingTranslationText()) ?? ""
             manualSourceReviewText = (try? session.currentSourceText()) ?? ""
@@ -1622,6 +1674,9 @@ final class AppViewModel: ObservableObject {
         manualStatusMessage = ""
         manualStatusIsError = false
         manualAIResult = nil
+        manualChunkTimingStartedAt = nil
+        manualLastChunkCompletedAt = nil
+        manualChunkDurations = []
     }
 
     func requestTranslation() {
@@ -1868,6 +1923,44 @@ final class AppViewModel: ObservableObject {
         }
         jobStartedAt = timingEstimator.startedAt
         jobCompletedAt = timingEstimator.completedAt
+    }
+
+    private var translationTimingProfile: TranslationTimingProfile {
+        switch workflowMode {
+        case .automatic:
+            switch codexModel {
+            case .luna: return .codexLuna
+            case .terra: return .codexTerra
+            case .sol: return .codexSol
+            }
+        case .appleLocal:
+            return .appleLocal
+        case .manual:
+            return .manual
+        }
+    }
+
+    private func completionText(for estimate: EstimatedDurationRange?) -> String {
+        guard let estimate else { return AppInterfaceLanguage.localized("计算中") }
+        let now = Date()
+        let lower = Self.shortTimeFormatter.string(from: now.addingTimeInterval(estimate.lowerBound))
+        let upper = Self.shortTimeFormatter.string(from: now.addingTimeInterval(estimate.upperBound))
+        return lower == upper ? lower : "\(lower)–\(upper)"
+    }
+
+    private func recordManualChunkCompletion(at date: Date = Date()) {
+        let baseline = manualLastChunkCompletedAt ?? manualChunkTimingStartedAt ?? date
+        manualChunkDurations.append(max(1, date.timeIntervalSince(baseline)))
+        if manualChunkDurations.count > 20 {
+            manualChunkDurations.removeFirst(manualChunkDurations.count - 20)
+        }
+        manualLastChunkCompletedAt = date
+    }
+
+    private static func fileSizeBytes(at url: URL) -> Int64? {
+        guard let values = try? url.resourceValues(forKeys: [.fileSizeKey]),
+              let fileSize = values.fileSize else { return nil }
+        return Int64(fileSize)
     }
 
     private static func durationText(_ duration: TimeInterval) -> String {
