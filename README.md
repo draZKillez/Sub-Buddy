@@ -1,6 +1,6 @@
 # AI看剧伴侣 / AI Viewing Companion
 
-一款仍在认真打磨中的 macOS 本地字幕工具：从 MKV 提取文字字幕、在本机识别图片字幕或英语音轨，再以手动、Apple 本地翻译或 Codex 三种方式生成目标语言 SRT。
+一款仍在认真打磨中的 macOS 本地字幕工具：主要用途帮助你生成一份字幕，支持十种语言。从 MKV 提取文字字幕、在本机识别图片字幕或英语音轨，再以手动、Apple 本地翻译或 Codex 三种方式生成目标语言 SRT。
 
 macOS 当前版本为 **0.7.1**，最低支持 macOS 14，安装包为 Universal 2，可运行于 Apple Silicon 和 Intel Mac。仓库也保留一个以手动字幕工作流为核心的 iOS/LiveContainer 0.4.0 测试版。
 
