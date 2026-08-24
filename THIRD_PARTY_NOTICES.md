@@ -2,7 +2,7 @@
 
 ## FFmpeg 8.1.2
 
-AI看剧伴侣 distributes a deliberately reduced FFmpeg 8.1.2 build for local Matroska and subtitle processing.
+Sub Buddy distributes a deliberately reduced FFmpeg 8.1.2 build for local Matroska and subtitle processing.
 
 - Upstream: <https://ffmpeg.org/>
 - License: GNU Lesser General Public License, version 2.1 or later
@@ -37,4 +37,4 @@ The full upstream Sparkle license and its included third-party notices are copie
 
 ## Project license
 
-No license is granted for AI看剧伴侣's own source code until the repository owner adds a root `LICENSE` file. Choose a project license before inviting outside reuse or contributions.
+No license is granted for Sub Buddy's own source code until the repository owner adds a root `LICENSE` file. Choose a project license before inviting outside reuse or contributions.

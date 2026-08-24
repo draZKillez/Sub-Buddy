@@ -2,15 +2,15 @@
 set -euo pipefail
 
 PROJECT_DIR="${0:A:h:h}"
-VERSION="${APP_VERSION:-0.7.1}"
-BUILD_NUMBER="${APP_BUILD_NUMBER:-18}"
+VERSION="${APP_VERSION:-0.8.0}"
+BUILD_NUMBER="${APP_BUILD_NUMBER:-19}"
 REPOSITORY="${GITHUB_REPOSITORY:-}"
 TAG="${RELEASE_TAG:-v$VERSION}"
 SPARKLE_ACCOUNT="${SPARKLE_KEY_ACCOUNT:-com.mkvsubtitletranslator.mac}"
 SPARKLE_TOOL="$PROJECT_DIR/Vendor/Tools/Sparkle/bin/generate_appcast"
-DMG="$PROJECT_DIR/outputs/AI看剧伴侣-$VERSION.dmg"
+DMG="$PROJECT_DIR/outputs/Sub Buddy-$VERSION.dmg"
 RELEASE_DIR="$PROJECT_DIR/outputs/release-$VERSION"
-RELEASE_DMG="$RELEASE_DIR/AI-Viewing-Companion-$VERSION.dmg"
+RELEASE_DMG="$RELEASE_DIR/Sub-Buddy-$VERSION.dmg"
 
 if [[ -z "$REPOSITORY" || "$REPOSITORY" != */* ]]; then
   print -u2 "请设置 GITHUB_REPOSITORY=你的用户名/仓库名"
@@ -37,7 +37,7 @@ gh release create "$TAG" \
   "$RELEASE_DMG" \
   "$RELEASE_DIR/appcast.xml" \
   --repo "$REPOSITORY" \
-  --title "AI看剧伴侣 $VERSION" \
+  --title "Sub Buddy $VERSION" \
   --generate-notes
 
 print "发布完成：https://github.com/$REPOSITORY/releases/tag/$TAG"

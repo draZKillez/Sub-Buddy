@@ -417,6 +417,7 @@ private final class FFmpegProgressParser: @unchecked Sendable {
 }
 
 private final class MKVExtractProgressParser: @unchecked Sendable {
+    private static let percentExpression = try? NSRegularExpression(pattern: "([0-9]{1,3})%")
     private let lock = NSLock()
     private var pending = ""
 
@@ -425,8 +426,8 @@ private final class MKVExtractProgressParser: @unchecked Sendable {
         defer { lock.unlock() }
         pending += chunk
         pending = String(pending.suffix(1_024))
-        guard let regex = try? NSRegularExpression(pattern: "([0-9]{1,3})%"),
-              let match = regex.matches(
+        guard let expression = Self.percentExpression,
+              let match = expression.matches(
                 in: pending,
                 range: NSRange(pending.startIndex..., in: pending)
               ).last,

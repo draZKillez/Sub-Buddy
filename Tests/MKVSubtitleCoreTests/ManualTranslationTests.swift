@@ -137,6 +137,20 @@ final class ManualTranslationTests: XCTestCase {
         XCTAssertThrowsError(try JSONDecoder().decode(ManualTranslationSession.self, from: encoded))
     }
 
+    func testManualSessionDecodingRejectsCorruptTimelineAndBody() throws {
+        for invalidCue in [
+            SubtitleCue(id: 1, startMilliseconds: 2_000, endMilliseconds: 1_000, text: "Backwards"),
+            SubtitleCue(id: 1, startMilliseconds: 1_000, endMilliseconds: 2_000, text: "   ")
+        ] {
+            let original = ManualTranslationSession(
+                document: SubtitleDocument(format: .srt, cues: [invalidCue]),
+                chunkSize: 1
+            )
+            let encoded = try JSONEncoder().encode(original)
+            XCTAssertThrowsError(try JSONDecoder().decode(ManualTranslationSession.self, from: encoded))
+        }
+    }
+
     func testOCRSourceCorrectionPreservesTimelineAndUpdatesCopyPrompt() throws {
         var session = ManualTranslationSession(document: document(2), chunkSize: 2)
         let corrected = """

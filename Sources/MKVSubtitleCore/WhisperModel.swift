@@ -102,7 +102,10 @@ public struct WhisperModelStore: Sendable {
         if let rootURL {
             self.rootURL = rootURL
         } else {
-            let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+            let base = FileManager.default.urls(
+                for: .applicationSupportDirectory,
+                in: .userDomainMask
+            ).first ?? FileManager.default.temporaryDirectory
             self.rootURL = base
                 .appendingPathComponent("AI Viewing Companion", isDirectory: true)
                 .appendingPathComponent("Whisper Models", isDirectory: true)
@@ -137,14 +140,20 @@ public struct WhisperModelStore: Sendable {
 
         let downloader = ModelDownloadOperation(progress: progress)
         let downloaded = try await downloader.download(from: model.downloadURL)
+        defer { try? FileManager.default.removeItem(at: downloaded) }
+        try Task.checkCancellation()
         try FileManager.default.moveItem(at: downloaded, to: temporary)
         try await Self.verify(temporary, model: model)
 
         let destination = fileURL(for: model)
         if FileManager.default.fileExists(atPath: destination.path) {
-            try FileManager.default.removeItem(at: destination)
+            _ = try FileManager.default.replaceItemAt(destination, withItemAt: temporary)
+        } else {
+            try FileManager.default.moveItem(at: temporary, to: destination)
         }
-        try FileManager.default.moveItem(at: temporary, to: destination)
+        guard FileManager.default.fileExists(atPath: destination.path) else {
+            throw AppError.modelDownload("模型已通过校验，但未能保存到模型目录。")
+        }
         progress(1)
         return destination
     }
@@ -178,6 +187,7 @@ private final class ModelDownloadOperation: NSObject, URLSessionDownloadDelegate
     private var task: URLSessionDownloadTask?
     private var downloadedURL: URL?
     private var moveError: Error?
+    private var cancelled = false
     private lazy var session = URLSession(configuration: .ephemeral, delegate: self, delegateQueue: nil)
 
     init(progress: @escaping @Sendable (Double) -> Void) {
@@ -186,8 +196,14 @@ private final class ModelDownloadOperation: NSObject, URLSessionDownloadDelegate
 
     func download(from url: URL) async throws -> URL {
         try await withTaskCancellationHandler(operation: {
-            try await withCheckedThrowingContinuation { continuation in
+            try Task.checkCancellation()
+            return try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<URL, Error>) in
                 lock.lock()
+                guard !cancelled else {
+                    lock.unlock()
+                    continuation.resume(throwing: CancellationError())
+                    return
+                }
                 self.continuation = continuation
                 let task = session.downloadTask(with: url)
                 self.task = task
@@ -196,6 +212,7 @@ private final class ModelDownloadOperation: NSObject, URLSessionDownloadDelegate
             }
         }, onCancel: {
             self.lock.lock()
+            self.cancelled = true
             let task = self.task
             self.lock.unlock()
             task?.cancel()
@@ -228,11 +245,25 @@ private final class ModelDownloadOperation: NSObject, URLSessionDownloadDelegate
         lock.lock()
         let continuation = self.continuation
         self.continuation = nil
+        self.task = nil
         let resultURL = downloadedURL
         let storedError = moveError
+        let wasCancelled = cancelled
         lock.unlock()
         session.finishTasksAndInvalidate()
-        if let error { continuation?.resume(throwing: error) }
+        if wasCancelled {
+            if let resultURL { try? FileManager.default.removeItem(at: resultURL) }
+            continuation?.resume(throwing: CancellationError())
+        } else if let error {
+            if let resultURL { try? FileManager.default.removeItem(at: resultURL) }
+            let normalizedError: Error
+            if (error as? URLError)?.code == .cancelled {
+                normalizedError = CancellationError()
+            } else {
+                normalizedError = error
+            }
+            continuation?.resume(throwing: normalizedError)
+        }
         else if let storedError { continuation?.resume(throwing: storedError) }
         else if let resultURL { continuation?.resume(returning: resultURL) }
         else { continuation?.resume(throwing: AppError.modelDownload("下载完成但未找到临时文件。")) }

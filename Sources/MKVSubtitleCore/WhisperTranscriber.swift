@@ -32,10 +32,9 @@ public final class WhisperTranscriber: @unchecked Sendable {
         progress: @escaping @Sendable (SpeechRecognitionProgress) -> Void
     ) async throws -> SubtitleDocument {
         let cancellation = WhisperCancellationBox()
-        return try await withTaskCancellationHandler(operation: {
-            try await Task.detached(priority: .userInitiated) {
+        let worker = Task.detached(priority: .userInitiated) {
                 progress(.init(phase: .loadingModel, fraction: 0, detail: "正在载入 Whisper 模型"))
-                let threadCount = max(2, min(8, ProcessInfo.processInfo.activeProcessorCount - 1))
+                let threadCount = max(1, min(8, ProcessInfo.processInfo.activeProcessorCount - 1))
                 let context = modelURL.path.withCString { path in
                     avc_whisper_create(path, true, Int32(threadCount))
                 }
@@ -47,6 +46,8 @@ public final class WhisperTranscriber: @unchecked Sendable {
                     cancellation.clear()
                     avc_whisper_destroy(context)
                 }
+                try Task.checkCancellation()
+                if cancellation.isCancelled { throw CancellationError() }
 
                 let fileSize = try rawPCMURL.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
                 guard fileSize >= MemoryLayout<Float>.size else {
@@ -63,6 +64,7 @@ public final class WhisperTranscriber: @unchecked Sendable {
 
                 while let data = try handle.read(upToCount: bytesPerChunk), !data.isEmpty {
                     try Task.checkCancellation()
+                    if cancellation.isCancelled { throw CancellationError() }
                     let usableBytes = data.count - data.count % MemoryLayout<Float>.size
                     guard usableBytes > 0 else { break }
                     collector.beginChunk(index: chunkIndex, startMilliseconds: chunkStartMilliseconds)
@@ -80,7 +82,7 @@ public final class WhisperTranscriber: @unchecked Sendable {
                             )
                         }
                     }
-                    if status == 2 || Task.isCancelled { throw CancellationError() }
+                    if status == 2 || Task.isCancelled || cancellation.isCancelled { throw CancellationError() }
                     guard status == 0 else {
                         throw AppError.speechRecognition("Whisper 在第 \(chunkIndex + 1) 个音频分段识别失败。")
                     }
@@ -94,9 +96,12 @@ public final class WhisperTranscriber: @unchecked Sendable {
                 }
                 progress(.init(phase: .writing, fraction: 0.98, detail: "正在整理时间轴并生成 SRT"))
                 return SubtitleDocument(format: .srt, cues: cues)
-            }.value
+        }
+        return try await withTaskCancellationHandler(operation: {
+            try await worker.value
         }, onCancel: {
             cancellation.cancel()
+            worker.cancel()
         })
     }
 }
@@ -104,9 +109,14 @@ public final class WhisperTranscriber: @unchecked Sendable {
 private final class WhisperCancellationBox: @unchecked Sendable {
     private let lock = NSLock()
     private var context: OpaquePointer?
+    private var cancellationRequested = false
 
     func set(_ context: OpaquePointer) {
-        lock.lock(); self.context = context; lock.unlock()
+        lock.lock()
+        self.context = context
+        let shouldCancel = cancellationRequested
+        lock.unlock()
+        if shouldCancel { avc_whisper_cancel(context) }
     }
 
     func clear() {
@@ -114,8 +124,17 @@ private final class WhisperCancellationBox: @unchecked Sendable {
     }
 
     func cancel() {
-        lock.lock(); let value = context; lock.unlock()
+        lock.lock()
+        cancellationRequested = true
+        let value = context
+        lock.unlock()
         if let value { avc_whisper_cancel(value) }
+    }
+
+    var isCancelled: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return cancellationRequested
     }
 }
 

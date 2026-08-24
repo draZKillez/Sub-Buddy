@@ -1,4 +1,4 @@
-# AI看剧伴侣 / AI Viewing Companion iOS
+# Sub Buddy / 字幕搭档 iOS
 
 iOS 0.4.0 面向 LiveContainer 真机测试，最低 iOS/iPadOS 16，输出未签名 arm64 IPA。当前核心是单文件手动字幕翻译，不含 Codex 自动翻译、文件夹队列或 MKV 重新封装。
 
@@ -25,7 +25,7 @@ iOS 0.4.0 面向 LiveContainer 真机测试，最低 iOS/iPadOS 16，输出未�
 
 - 提取/OCR 显示百分比、完成/剩余数量、累计用时、ETA 和预计完成时间，并支持取消。
 - 长任务期间阻止设备自动锁屏；iOS 仍可能在后台或锁屏后暂停任务。
-- VobSub/DVD、DVB、XSUB 暂不支持 OCR。
+- PGS 与 VobSub/DVD 支持本机 OCR；DVB、XSUB 暂不支持。
 - PGS OCR 准确度取决于字体、对比度和 Apple Vision 对所选语言的支持，建议导出前人工校对。
 
 ## 构建
@@ -37,4 +37,4 @@ zsh scripts/build_ffmpeg_ios.sh
 zsh scripts/package_ipa.sh
 ```
 
-输出为 `outputs/AI看剧伴侣-iOS-0.4.0-LiveContainer.ipa`。
+输出为 `outputs/Sub-Buddy-iOS-0.4.0-LiveContainer.ipa`。

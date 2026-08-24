@@ -1,6 +1,9 @@
 import CoreGraphics
 import Foundation
 import Vision
+#if canImport(Darwin)
+import Darwin
+#endif
 
 public struct PGSBitmapCue: Equatable, Sendable {
     public let startMilliseconds: Int64
@@ -63,9 +66,13 @@ public struct PGSSubtitleDecoder: Sendable {
         var active: Rendered?
         var cues: [PGSBitmapCue] = []
         var decodedBitmapBytes = 0
+        var nextCancellationCheckOffset = 0
 
         while offset + 13 <= bytes.count {
-            if offset & 0x3FFFF == 0 { try Task.checkCancellation() }
+            if offset >= nextCancellationCheckOffset {
+                try Task.checkCancellation()
+                nextCancellationCheckOffset = offset + 256 * 1_024
+            }
             guard bytes[offset] == 0x50, bytes[offset + 1] == 0x47 else {
                 throw AppError.parsingFailed("PGS 数据缺少 SUP 数据包头。")
             }
@@ -75,7 +82,6 @@ public struct PGSSubtitleDecoder: Sendable {
             let start = offset + 13
             let end = start + length
             guard end <= bytes.count else { throw AppError.parsingFailed("PGS 数据包被截断。") }
-            let payload = Array(bytes[start..<end])
 
             switch type {
             case 0x16:
@@ -93,29 +99,33 @@ public struct PGSSubtitleDecoder: Sendable {
                     ))
                     active = nil
                 }
-                composition = parseComposition(payload, pts: pts)
+                composition = parseComposition(bytes, offset: start, length: length, pts: pts)
             case 0x14:
-                if payload.count >= 2 {
-                    let paletteID = payload[0]
+                if length >= 2 {
+                    let paletteID = bytes[start]
                     var palette = palettes[paletteID] ?? [:]
-                    var index = 2
-                    while index + 4 < payload.count {
-                        palette[payload[index]] = Self.rgba(
-                            y: payload[index + 1],
-                            cr: payload[index + 2],
-                            cb: payload[index + 3],
-                            alpha: payload[index + 4]
+                    var index = start + 2
+                    while index + 4 < end {
+                        palette[bytes[index]] = Self.rgba(
+                            y: bytes[index + 1],
+                            cr: bytes[index + 2],
+                            cb: bytes[index + 3],
+                            alpha: bytes[index + 4]
                         )
                         index += 5
                     }
                     palettes[paletteID] = palette
                 }
             case 0x15:
-                parseObject(payload, assemblies: &assemblies, objects: &objects)
+                try parseObject(bytes, offset: start, length: length, assemblies: &assemblies, objects: &objects)
             case 0x80:
                 if let composition,
                    !composition.placements.isEmpty,
-                   let rendered = render(composition, palette: palettes[composition.paletteID] ?? [:], objects: objects) {
+                   let rendered = try render(
+                       composition,
+                       palette: palettes[composition.paletteID] ?? [:],
+                       objects: objects
+                   ) {
                     active = rendered
                 }
             default:
@@ -143,62 +153,71 @@ public struct PGSSubtitleDecoder: Sendable {
         return cues.filter { $0.endMilliseconds > $0.startMilliseconds && !$0.rgba.isEmpty }
     }
 
-    private func parseComposition(_ bytes: [UInt8], pts: UInt32) -> Composition? {
-        guard bytes.count >= 11 else { return nil }
-        let paletteID = bytes[9]
-        let count = Int(bytes[10])
-        var offset = 11
+    private func parseComposition(_ bytes: Data, offset: Int, length: Int, pts: UInt32) -> Composition? {
+        guard length >= 11 else { return nil }
+        let end = offset + length
+        let paletteID = bytes[offset + 9]
+        let count = Int(bytes[offset + 10])
+        var cursor = offset + 11
         var placements: [Placement] = []
+        placements.reserveCapacity(count)
         for _ in 0..<count {
-            guard offset + 7 < bytes.count else { break }
-            let objectID = readUInt16(bytes, offset)
-            let cropped = bytes[offset + 3] & 0x80 != 0
+            guard cursor + 7 < end else { break }
+            let objectID = readUInt16(bytes, cursor)
+            let cropped = bytes[cursor + 3] & 0x80 != 0
+            guard !cropped || cursor + 15 < end else { break }
             placements.append(Placement(
                 objectID: objectID,
-                x: Int(readUInt16(bytes, offset + 4)),
-                y: Int(readUInt16(bytes, offset + 6))
+                x: Int(readUInt16(bytes, cursor + 4)),
+                y: Int(readUInt16(bytes, cursor + 6))
             ))
-            offset += cropped ? 16 : 8
+            cursor += cropped ? 16 : 8
         }
         return Composition(pts: pts, paletteID: paletteID, placements: placements)
     }
 
     private func parseObject(
-        _ bytes: [UInt8],
+        _ bytes: Data,
+        offset: Int,
+        length: Int,
         assemblies: inout [UInt16: Assembly],
         objects: inout [UInt16: ObjectBitmap]
-    ) {
-        guard bytes.count >= 4 else { return }
-        let objectID = readUInt16(bytes, 0)
-        let sequence = bytes[3]
+    ) throws {
+        guard length >= 4 else { return }
+        let end = offset + length
+        let objectID = readUInt16(bytes, offset)
+        let sequence = bytes[offset + 3]
         var assembly: Assembly
         var payloadOffset: Int
         if sequence & 0x80 != 0 {
-            guard bytes.count >= 11 else { return }
-            let dataLength = Int(bytes[4]) << 16 | Int(bytes[5]) << 8 | Int(bytes[6])
+            guard length >= 11 else { return }
+            let dataLength = Int(bytes[offset + 4]) << 16 |
+                Int(bytes[offset + 5]) << 8 |
+                Int(bytes[offset + 6])
             assembly = Assembly(
-                width: Int(readUInt16(bytes, 7)),
-                height: Int(readUInt16(bytes, 9)),
+                width: Int(readUInt16(bytes, offset + 7)),
+                height: Int(readUInt16(bytes, offset + 9)),
                 expectedBytes: max(0, dataLength - 4),
                 bytes: Data()
             )
-            payloadOffset = 11
+            if assembly.expectedBytes > 0 { assembly.bytes.reserveCapacity(assembly.expectedBytes) }
+            payloadOffset = offset + 11
         } else {
             guard let existing = assemblies[objectID] else { return }
             assembly = existing
-            payloadOffset = 4
+            payloadOffset = offset + 4
         }
-        if payloadOffset < bytes.count { assembly.bytes.append(contentsOf: bytes[payloadOffset...]) }
+        if payloadOffset < end { assembly.bytes.append(contentsOf: bytes[payloadOffset..<end]) }
         assemblies[objectID] = assembly
         if sequence & 0x40 != 0 || assembly.bytes.count >= assembly.expectedBytes {
-            if let indices = decodeRLE([UInt8](assembly.bytes), width: assembly.width, height: assembly.height) {
+            if let indices = try decodeRLE(assembly.bytes, width: assembly.width, height: assembly.height) {
                 objects[objectID] = ObjectBitmap(width: assembly.width, height: assembly.height, indices: indices)
             }
             assemblies[objectID] = nil
         }
     }
 
-    private func decodeRLE(_ bytes: [UInt8], width: Int, height: Int) -> [UInt8]? {
+    private func decodeRLE(_ bytes: Data, width: Int, height: Int) throws -> [UInt8]? {
         guard width > 0, height > 0,
               width <= Self.maximumBitmapDimension,
               height <= Self.maximumBitmapDimension,
@@ -207,41 +226,55 @@ public struct PGSSubtitleDecoder: Sendable {
         var source = 0
         var x = 0
         var y = 0
-        while source < bytes.count, y < height {
-            let first = bytes[source]
-            source += 1
-            if first != 0 {
-                if x < width { output[y * width + x] = first }
-                x += 1
-                continue
-            }
-            guard source < bytes.count else { break }
-            let control = bytes[source]
-            source += 1
-            if control == 0 {
-                y += 1
-                x = 0
-                continue
-            }
-            var run: Int
-            var color: UInt8 = 0
-            if control & 0x40 != 0 {
-                guard source < bytes.count else { break }
-                run = (Int(control & 0x3F) << 8) | Int(bytes[source])
+        var nextCancellationCheck = 0
+        try output.withUnsafeMutableBufferPointer { buffer in
+            guard let destination = buffer.baseAddress else { return }
+            while source < bytes.count, y < height {
+                if source >= nextCancellationCheck {
+                    try Task.checkCancellation()
+                    nextCancellationCheck = source + 64 * 1_024
+                }
+                let first = bytes[source]
                 source += 1
-            } else {
-                run = Int(control & 0x3F)
-            }
-            if control & 0x80 != 0 {
+                if first != 0 {
+                    if x < width { destination[y * width + x] = first }
+                    x += 1
+                    continue
+                }
                 guard source < bytes.count else { break }
-                color = bytes[source]
+                let control = bytes[source]
                 source += 1
-            }
-            for _ in 0..<run {
-                guard y < height else { break }
-                if x >= width { y += 1; x = 0; if y >= height { break } }
-                output[y * width + x] = color
-                x += 1
+                if control == 0 {
+                    y += 1
+                    x = 0
+                    continue
+                }
+                var run: Int
+                var color: UInt8 = 0
+                if control & 0x40 != 0 {
+                    guard source < bytes.count else { break }
+                    run = (Int(control & 0x3F) << 8) | Int(bytes[source])
+                    source += 1
+                } else {
+                    run = Int(control & 0x3F)
+                }
+                if control & 0x80 != 0 {
+                    guard source < bytes.count else { break }
+                    color = bytes[source]
+                    source += 1
+                }
+                var remaining = run
+                while remaining > 0, y < height {
+                    if x >= width {
+                        y += 1
+                        x = 0
+                        continue
+                    }
+                    let writable = min(remaining, width - x)
+                    memset(destination.advanced(by: y * width + x), Int32(color), writable)
+                    x += writable
+                    remaining -= writable
+                }
             }
         }
         guard y >= height || (y == height - 1 && x >= width) else { return nil }
@@ -252,37 +285,53 @@ public struct PGSSubtitleDecoder: Sendable {
         _ composition: Composition,
         palette: [UInt8: Color],
         objects: [UInt16: ObjectBitmap]
-    ) -> Rendered? {
+    ) throws -> Rendered? {
         let available = composition.placements.compactMap { placement -> (Placement, ObjectBitmap)? in
             objects[placement.objectID].map { (placement, $0) }
         }
         guard !available.isEmpty else { return nil }
-        let minX = available.map { $0.0.x }.min() ?? 0
-        let minY = available.map { $0.0.y }.min() ?? 0
-        let maxX = available.map { $0.0.x + $0.1.width }.max() ?? minX
-        let maxY = available.map { $0.0.y + $0.1.height }.max() ?? minY
+        var minX = Int.max
+        var minY = Int.max
+        var maxX = Int.min
+        var maxY = Int.min
+        for (placement, object) in available {
+            minX = min(minX, placement.x)
+            minY = min(minY, placement.y)
+            maxX = max(maxX, placement.x + object.width)
+            maxY = max(maxY, placement.y + object.height)
+        }
         let width = maxX - minX
         let height = maxY - minY
         guard width > 0, height > 0,
               width <= Self.maximumBitmapDimension,
               height <= Self.maximumBitmapDimension,
               width <= Self.maximumBitmapPixels / height else { return nil }
-        var rgba = [UInt8](repeating: 0, count: width * height * 4)
-        for (placement, object) in available {
-            for row in 0..<object.height {
-                for column in 0..<object.width {
-                    let color = palette[object.indices[row * object.width + column]] ?? Color(r: 0, g: 0, b: 0, a: 0)
-                    let x = placement.x - minX + column
-                    let y = placement.y - minY + row
-                    let target = (y * width + x) * 4
-                    rgba[target] = color.r
-                    rgba[target + 1] = color.g
-                    rgba[target + 2] = color.b
-                    rgba[target + 3] = color.a
+        let transparent = Color(r: 0, g: 0, b: 0, a: 0)
+        var colorTable = [Color](repeating: transparent, count: 256)
+        for (index, color) in palette { colorTable[Int(index)] = color }
+        var rgba = Data(repeating: 0, count: width * height * 4)
+        try rgba.withUnsafeMutableBytes { rawBuffer in
+            guard let destination = rawBuffer.bindMemory(to: UInt8.self).baseAddress else { return }
+            for (placementIndex, value) in available.enumerated() {
+                let (placement, object) = value
+                if placementIndex.isMultiple(of: 4) { try Task.checkCancellation() }
+                for row in 0..<object.height {
+                    if row.isMultiple(of: 64) { try Task.checkCancellation() }
+                    let sourceRow = row * object.width
+                    let targetRow = (placement.y - minY + row) * width
+                    for column in 0..<object.width {
+                        let color = colorTable[Int(object.indices[sourceRow + column])]
+                        guard color.a != 0 else { continue }
+                        let target = (targetRow + placement.x - minX + column) * 4
+                        destination[target] = color.r
+                        destination[target + 1] = color.g
+                        destination[target + 2] = color.b
+                        destination[target + 3] = color.a
+                    }
                 }
             }
         }
-        return Rendered(start: ptsMilliseconds(composition.pts), width: width, height: height, rgba: Data(rgba))
+        return Rendered(start: ptsMilliseconds(composition.pts), width: width, height: height, rgba: rgba)
     }
 
     private static func rgba(y: UInt8, cr: UInt8, cb: UInt8, alpha: UInt8) -> Color {
@@ -347,6 +396,7 @@ public final class LocalPGSOCRService: @unchecked Sendable {
     ) async throws -> PGSOCRResult {
         try Task.checkCancellation()
         guard !input.isEmpty else { throw AppError.parsingFailed("图片字幕中没有找到可识别的图片。") }
+        let effectiveLanguage = try validatedRecognitionLanguage(language)
         var bitmapCues = input.map(Optional.some)
         let totalCueCount = bitmapCues.count
         #if os(iOS)
@@ -354,7 +404,7 @@ public final class LocalPGSOCRService: @unchecked Sendable {
         #else
         let parallelism = max(2, min(8, ProcessInfo.processInfo.activeProcessorCount / 2))
         #endif
-        var results = [Int: (SubtitleCue, Bool)]()
+        var results = [(cue: SubtitleCue, lowConfidence: Bool)?](repeating: nil, count: totalCueCount)
         var completed = 0
         var lastProgressUpdate = ContinuousClock.now
         try await withThrowingTaskGroup(of: (Int, SubtitleCue, Bool).self) { group in
@@ -364,7 +414,7 @@ public final class LocalPGSOCRService: @unchecked Sendable {
                 bitmapCues[index] = nil
                 group.addTask {
                     try Task.checkCancellation()
-                    let recognized = try Self.recognize(bitmap, language: language)
+                    let recognized = try Self.recognize(bitmap, language: effectiveLanguage)
                     let id = index + 1
                     let text = recognized.text.trimmingCharacters(in: .whitespacesAndNewlines)
                     let low = recognized.confidence < 0.65 || text.isEmpty
@@ -378,7 +428,7 @@ public final class LocalPGSOCRService: @unchecked Sendable {
             }
             while nextIndex < min(parallelism, totalCueCount) { add(nextIndex); nextIndex += 1 }
             while let (id, cue, low) = try await group.next() {
-                results[id] = (cue, low)
+                results[id - 1] = (cue, low)
                 completed += 1
                 let now = ContinuousClock.now
                 if completed == totalCueCount || now - lastProgressUpdate >= .milliseconds(100) {
@@ -388,12 +438,30 @@ public final class LocalPGSOCRService: @unchecked Sendable {
                 if nextIndex < totalCueCount { add(nextIndex); nextIndex += 1 }
             }
         }
-        let ordered = (1...totalCueCount).compactMap { results[$0]?.0 }
-        let lowConfidence = (1...totalCueCount).filter { results[$0]?.1 == true }
+        let completedResults = results.compactMap { $0 }
+        guard completedResults.count == totalCueCount else {
+            throw AppError.parsingFailed("图片字幕 OCR 未能返回全部条目。")
+        }
+        let ordered = completedResults.map { $0.cue }
+        let lowConfidence = results.enumerated().compactMap { index, result in
+            result?.lowConfidence == true ? index + 1 : nil
+        }
         return PGSOCRResult(
             document: SubtitleDocument(format: .srt, cues: ordered),
             lowConfidenceCueIDs: lowConfidence
         )
+    }
+
+    private static func validatedRecognitionLanguage(_ language: String) throws -> String {
+        let requested = language.trimmingCharacters(in: .whitespacesAndNewlines)
+        let effective = requested.isEmpty || requested == "und" ? "en-US" : requested
+        let request = VNRecognizeTextRequest()
+        request.recognitionLevel = .accurate
+        let supported = try request.supportedRecognitionLanguages()
+        guard supported.contains(effective) else {
+            throw AppError.unsupportedSubtitle("当前系统的 Apple Vision OCR 不支持 \(effective)。请选择其他原文语言或文本字幕轨道。")
+        }
+        return effective
     }
 
     private static func recognize(_ cue: PGSBitmapCue, language: String) throws -> (text: String, confidence: Float) {
@@ -402,21 +470,27 @@ public final class LocalPGSOCRService: @unchecked Sendable {
         // odd sizes (for example 737×73), so transparently pad one row/column.
         let imageWidth = ((cue.width + 15) / 16) * 16
         let imageHeight = ((cue.height + 15) / 16) * 16
-        var padded = Data(repeating: 0, count: imageWidth * imageHeight * 4)
-        padded.withUnsafeMutableBytes { destination in
-            cue.rgba.withUnsafeBytes { source in
-                guard let destinationBase = destination.baseAddress,
-                      let sourceBase = source.baseAddress else { return }
-                for row in 0..<cue.height {
-                    destinationBase.advanced(by: row * imageWidth * 4).copyMemory(
-                        from: sourceBase.advanced(by: row * cue.width * 4),
-                        byteCount: cue.width * 4
-                    )
+        let imageData: Data
+        if imageWidth == cue.width, imageHeight == cue.height {
+            imageData = cue.rgba
+        } else {
+            var padded = Data(repeating: 0, count: imageWidth * imageHeight * 4)
+            padded.withUnsafeMutableBytes { destination in
+                cue.rgba.withUnsafeBytes { source in
+                    guard let destinationBase = destination.baseAddress,
+                          let sourceBase = source.baseAddress else { return }
+                    for row in 0..<cue.height {
+                        destinationBase.advanced(by: row * imageWidth * 4).copyMemory(
+                            from: sourceBase.advanced(by: row * cue.width * 4),
+                            byteCount: cue.width * 4
+                        )
+                    }
                 }
             }
+            imageData = padded
         }
         let bytesPerRow = imageWidth * 4
-        guard let provider = CGDataProvider(data: padded as CFData),
+        guard let provider = CGDataProvider(data: imageData as CFData),
               let image = CGImage(
                 width: imageWidth,
                 height: imageHeight,
@@ -434,13 +508,7 @@ public final class LocalPGSOCRService: @unchecked Sendable {
         let request = VNRecognizeTextRequest()
         request.recognitionLevel = .accurate
         request.usesLanguageCorrection = true
-        let requestedLanguage = language.trimmingCharacters(in: .whitespacesAndNewlines)
-        let effectiveLanguage = requestedLanguage.isEmpty || requestedLanguage == "und" ? "en-US" : requestedLanguage
-        let supported = try request.supportedRecognitionLanguages()
-        guard supported.contains(effectiveLanguage) else {
-            throw AppError.unsupportedSubtitle("当前系统的 Apple Vision OCR 不支持 \(effectiveLanguage)。请选择其他原文语言或文本字幕轨道。")
-        }
-        request.recognitionLanguages = [effectiveLanguage]
+        request.recognitionLanguages = [language]
         try VNImageRequestHandler(cgImage: image).perform([request])
         let observations = (request.results ?? []).sorted {
             if abs($0.boundingBox.midY - $1.boundingBox.midY) > 0.03 { return $0.boundingBox.midY > $1.boundingBox.midY }

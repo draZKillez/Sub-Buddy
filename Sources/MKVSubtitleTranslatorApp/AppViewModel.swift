@@ -75,6 +75,17 @@ private struct ManualCopyTextCacheKey: Equatable {
 
 @MainActor
 final class AppViewModel: ObservableObject {
+    private static let shortTimeFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "HH:mm"
+        return formatter
+    }()
+    private static let completionTimeFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd HH:mm:ss"
+        return formatter
+    }()
+
     @Published var selectedFile: URL?
     @Published var mediaInfo: MediaInfo?
     @Published var selectedTrackIndex: Int?
@@ -152,7 +163,9 @@ final class AppViewModel: ObservableObject {
     private var inspectionTask: Task<Void, Never>?
     private var folderScanTask: Task<Void, Never>?
     private var selectionGeneration = UUID()
+    private var translationGeneration = UUID()
     private var batchQueueGeneration = 0
+    private var batchPersistenceRevision: UInt64 = 0
     private var manualAICheckID: UUID?
     private var manualAICheckTask: Task<Void, Never>?
     private var manualSaveID: UUID?
@@ -305,18 +318,15 @@ final class AppViewModel: ObservableObject {
 
     var estimatedCompletionText: String {
         guard let estimatedRemaining else { return AppInterfaceLanguage.localized("计算中") }
-        let formatter = DateFormatter()
-        formatter.dateFormat = "HH:mm"
-        let lower = formatter.string(from: Date().addingTimeInterval(estimatedRemaining.lowerBound))
-        let upper = formatter.string(from: Date().addingTimeInterval(estimatedRemaining.upperBound))
+        let now = Date()
+        let lower = Self.shortTimeFormatter.string(from: now.addingTimeInterval(estimatedRemaining.lowerBound))
+        let upper = Self.shortTimeFormatter.string(from: now.addingTimeInterval(estimatedRemaining.upperBound))
         return lower == upper ? lower : "\(lower)–\(upper)"
     }
 
     var completionTimeText: String? {
         guard let jobCompletedAt else { return nil }
-        let formatter = DateFormatter()
-        formatter.dateFormat = "yyyy-MM-dd HH:mm:ss"
-        return formatter.string(from: jobCompletedAt)
+        return Self.completionTimeFormatter.string(from: jobCompletedAt)
     }
 
     func outputSettingsDidChange() {
@@ -443,12 +453,13 @@ final class AppViewModel: ObservableObject {
         isScanningFolder = false
         let generation = UUID()
         selectionGeneration = generation
+        translationGeneration = UUID()
         if !preservingBatch {
             let hadBatchSelection = !batchJobs.isEmpty || selectedFolder != nil
             batchJobs = []
             selectedFolder = nil
             if hadBatchSelection {
-                Task { try? await batchQueueStore.clear() }
+                persistBatchQueueClear()
             }
         }
         errorMessage = nil
@@ -495,6 +506,7 @@ final class AppViewModel: ObservableObject {
         folderScanTask?.cancel()
         let generation = UUID()
         selectionGeneration = generation
+        translationGeneration = UUID()
         isInspecting = false
         selectedFolder = url
         selectedFile = nil
@@ -523,12 +535,14 @@ final class AppViewModel: ObservableObject {
                     throw AppError.invalidMedia("所选文件夹及其子文件夹中没有找到 MKV 文件。")
                 }
                 batchJobs = urls.map { BatchJob(inputPath: $0.path) }
-                try? await batchQueueStore.save(batchJobs)
+                await persistBatchQueueNow()
                 let jobIDs = batchJobs.map(\.id)
                 for (offset, jobID) in jobIDs.enumerated() {
                     try Task.checkCancellation()
                     guard selectionGeneration == generation,
-                          let index = batchJobs.firstIndex(where: { $0.id == jobID }) else { return }
+                          batchJobs.indices.contains(offset),
+                          batchJobs[offset].id == jobID else { return }
+                    let index = offset
                     batchJobs[index].status = .inspecting
                     batchJobs[index].detail = "正在读取字幕轨道"
                     do {
@@ -536,7 +550,9 @@ final class AppViewModel: ObservableObject {
                         let info = try await inspector.inspect(input)
                         try Task.checkCancellation()
                         guard selectionGeneration == generation,
-                              let currentIndex = batchJobs.firstIndex(where: { $0.id == jobID }) else { return }
+                              batchJobs.indices.contains(index),
+                              batchJobs[index].id == jobID else { return }
+                        let currentIndex = index
                         if let track = preferredTrack(in: info) {
                             batchJobs[currentIndex].status = .ready
                             batchJobs[currentIndex].detail = "轨道 #\(track.streamIndex) · \(track.codec) · \(track.language)"
@@ -549,15 +565,17 @@ final class AppViewModel: ObservableObject {
                         return
                     } catch {
                         guard selectionGeneration == generation,
-                              let currentIndex = batchJobs.firstIndex(where: { $0.id == jobID }) else { return }
+                              batchJobs.indices.contains(index),
+                              batchJobs[index].id == jobID else { return }
+                        let currentIndex = index
                         batchJobs[currentIndex].status = .failed
                         batchJobs[currentIndex].isEnabled = false
                         batchJobs[currentIndex].detail = error.localizedDescription
                     }
-                    if offset.isMultiple(of: 5) { try? await batchQueueStore.save(batchJobs) }
+                    if (offset + 1).isMultiple(of: 5) { await persistBatchQueueNow() }
                 }
                 guard selectionGeneration == generation else { return }
-                try? await batchQueueStore.save(batchJobs)
+                await persistBatchQueueNow()
                 if let first = batchJobs.first(where: { $0.isEnabled && $0.status == .ready }) {
                     loadBatchJob(first.id)
                 }
@@ -574,7 +592,7 @@ final class AppViewModel: ObservableObject {
         guard !isWorking, !isBatchProcessing, !isScanningFolder, !isInspecting,
               let index = batchJobs.firstIndex(where: { $0.id == id }) else { return }
         batchJobs[index].isEnabled.toggle()
-        Task { try? await batchQueueStore.save(batchJobs) }
+        persistBatchQueueSnapshot()
     }
 
     func loadBatchJob(_ id: UUID) {
@@ -588,7 +606,7 @@ final class AppViewModel: ObservableObject {
         batchQueueGeneration += 1
         batchJobs = []
         selectedFolder = nil
-        Task { try? await batchQueueStore.clear() }
+        persistBatchQueueClear()
     }
 
     func startBatchProcessing() {
@@ -629,20 +647,24 @@ final class AppViewModel: ObservableObject {
         let requestedTargetLanguage = targetLanguage
         let overwrite = batchExistingFilePolicy == .overwrite
         let chunkSize = translationChunkSize
+        let workflowGeneration = UUID()
+        translationGeneration = workflowGeneration
         translationTask = Task {
             defer {
                 isBatchProcessing = false
                 isWorking = false
+                translationTask = nil
                 finishJobTiming()
             }
             for index in runnable {
                 guard !Task.isCancelled else { break }
+                let jobID = batchJobs[index].id
                 let input = batchJobs[index].inputURL
                 batchJobs[index].status = .processing
                 batchJobs[index].startedAt = Date()
                 batchJobs[index].detail = "正在重新确认媒体信息"
                 batchJobs[index].progressFraction = 0
-                try? await batchQueueStore.save(batchJobs)
+                await persistBatchQueueNow()
                 do {
                     let info = try await inspector.inspect(input)
                     guard let track = preferredTrack(in: info) else {
@@ -660,7 +682,7 @@ final class AppViewModel: ObservableObject {
                         batchJobs[index].detail = "输出已存在，按队列设置跳过"
                         batchJobs[index].progressFraction = 1
                         batchJobs[index].completedAt = Date()
-                        try? await batchQueueStore.save(batchJobs)
+                        await persistBatchQueueNow()
                         continue
                     }
                     let pipeline = TranslationPipeline(
@@ -687,9 +709,12 @@ final class AppViewModel: ObservableObject {
                         overwrite: overwrite
                     ) { [weak self] value in
                         Task { @MainActor in
-                            guard let self else { return }
+                            guard let self,
+                                  self.translationGeneration == workflowGeneration,
+                                  self.batchJobs.indices.contains(index),
+                                  self.batchJobs[index].id == jobID,
+                                  self.batchJobs[index].status == .processing else { return }
                             self.setProgress(value, allowCompletion: false)
-                            guard self.batchJobs.indices.contains(index) else { return }
                             self.batchJobs[index].detail = value.detail ?? value.phase.rawValue
                             self.batchJobs[index].progressFraction = self.overallFraction(for: value)
                         }
@@ -703,18 +728,18 @@ final class AppViewModel: ObservableObject {
                 } catch is CancellationError {
                     batchJobs[index].status = .ready
                     batchJobs[index].detail = "已取消，可继续处理"
-                    try? await batchQueueStore.save(batchJobs)
+                    await persistBatchQueueNow()
                     break
                 } catch let appError as AppError where appError == .cancelled {
                     batchJobs[index].status = .ready
                     batchJobs[index].detail = "已取消，可继续处理"
-                    try? await batchQueueStore.save(batchJobs)
+                    await persistBatchQueueNow()
                     break
                 } catch let appError as AppError where Self.isBlockingCodexError(appError) {
                     updateCodexStatus(for: appError)
                     batchJobs[index].status = .ready
                     batchJobs[index].detail = appError.localizedDescription
-                    try? await batchQueueStore.save(batchJobs)
+                    await persistBatchQueueNow()
                     errorMessage = appError.localizedDescription
                     break
                 } catch {
@@ -722,7 +747,7 @@ final class AppViewModel: ObservableObject {
                     batchJobs[index].detail = error.localizedDescription
                     batchJobs[index].completedAt = Date()
                 }
-                try? await batchQueueStore.save(batchJobs)
+                await persistBatchQueueNow()
             }
             completedOutputMode = requestedOutputMode
             completedDeliveryMode = requestedDeliveryMode
@@ -859,7 +884,8 @@ final class AppViewModel: ObservableObject {
                     durationSeconds: mediaInfo.durationSeconds
                 ) { [weak self] fraction in
                     Task { @MainActor in
-                        guard self?.speechRecognitionGeneration == generation else { return }
+                        guard self?.speechRecognitionGeneration == generation,
+                              self?.isSpeechRecognizing == true else { return }
                         self?.speechRecognitionProgress = .init(
                             phase: .extractingAudio,
                             fraction: fraction * 0.12,
@@ -877,7 +903,8 @@ final class AppViewModel: ObservableObject {
                     prompt: prompt
                 ) { [weak self] value in
                     Task { @MainActor in
-                        guard self?.speechRecognitionGeneration == generation else { return }
+                        guard self?.speechRecognitionGeneration == generation,
+                              self?.isSpeechRecognizing == true else { return }
                         let overall = 0.12 + value.fraction * 0.86
                         self?.speechRecognitionProgress = .init(
                             phase: value.phase,
@@ -898,7 +925,7 @@ final class AppViewModel: ObservableObject {
                         document.cues.count
                     )
                 )
-                try SubtitleWriter().write(document, to: output)
+                try SubtitleWriter().write(document, to: output, overwrite: overwrite)
                 speechOutputURL = output
                 speechRecognitionProgress = .init(
                     phase: .writing,
@@ -1129,7 +1156,13 @@ final class AppViewModel: ObservableObject {
         outputURL = nil
         let chunkSize = translationChunkSize
         let service = FFmpegService(ffmpegURL: tools.ffmpeg, mkvextractURL: tools.mkvextract, bitmapSubtitleDecoderURL: tools.bitmapSubtitleDecoder)
+        let workflowGeneration = UUID()
+        translationGeneration = workflowGeneration
         translationTask = Task {
+            defer {
+                isWorking = false
+                translationTask = nil
+            }
             let temporaryRoot = FileManager.default.temporaryDirectory
                 .appendingPathComponent("MKVSubtitleTranslator-Manual-\(UUID().uuidString)", isDirectory: true)
             do {
@@ -1154,19 +1187,35 @@ final class AppViewModel: ObservableObject {
                         output: source,
                         durationSeconds: mediaInfo.durationSeconds
                     ) { [weak self] fraction in
-                        Task { @MainActor in self?.setProgress(PipelineProgress(
-                            phase: .extracting, completedChunks: 0, totalChunks: 0,
-                            phaseFraction: fraction, detail: detail
-                        )) }
+                        Task { @MainActor in
+                            guard let self,
+                                  self.translationGeneration == workflowGeneration else { return }
+                            self.setProgress(PipelineProgress(
+                                phase: .extracting, completedChunks: 0, totalChunks: 0,
+                                phaseFraction: fraction, detail: detail
+                            ))
+                        }
                     }
-                    document = try SubtitleParser().parse(contentsOf: source, format: format)
+                    let parseTask = Task.detached(priority: .userInitiated) {
+                        try SubtitleParser().parse(contentsOf: source, format: format)
+                    }
+                    document = try await withTaskCancellationHandler {
+                        try await parseTask.value
+                    } onCancel: {
+                        parseTask.cancel()
+                    }
+                    try Task.checkCancellation()
                 } else {
                     let source = temporaryRoot.appendingPathComponent(track.isPGS ? "source.sup" : "source.mkvbm")
                     let extractionProgress: @Sendable (Double) -> Void = { [weak self] fraction in
-                        Task { @MainActor in self?.setProgress(PipelineProgress(
-                            phase: .extracting, completedChunks: 0, totalChunks: 0,
-                            phaseFraction: fraction, detail: detail + (track.isPGS ? " · PGS" : " · VobSub 位图解码")
-                        )) }
+                        Task { @MainActor in
+                            guard let self,
+                                  self.translationGeneration == workflowGeneration else { return }
+                            self.setProgress(PipelineProgress(
+                                phase: .extracting, completedChunks: 0, totalChunks: 0,
+                                phaseFraction: fraction, detail: detail + (track.isPGS ? " · PGS" : " · VobSub 位图解码")
+                            ))
+                        }
                     }
                     if track.isPGS {
                         try await service.extractPGSSubtitle(
@@ -1179,12 +1228,16 @@ final class AppViewModel: ObservableObject {
                         )
                     }
                     let ocrProgress: @Sendable (Int, Int) -> Void = { [weak self] completed, total in
-                        Task { @MainActor in self?.setProgress(PipelineProgress(
-                            phase: .ocr, completedChunks: 0, totalChunks: 0,
-                            phaseFraction: total > 0 ? Double(completed) / Double(total) : 0,
-                            detail: AppInterfaceLanguage.localized("Apple Vision 本地 OCR · 完成后可在手动文本中校对"),
-                            completedItems: completed, totalItems: total
-                        )) }
+                        Task { @MainActor in
+                            guard let self,
+                                  self.translationGeneration == workflowGeneration else { return }
+                            self.setProgress(PipelineProgress(
+                                phase: .ocr, completedChunks: 0, totalChunks: 0,
+                                phaseFraction: total > 0 ? Double(completed) / Double(total) : 0,
+                                detail: AppInterfaceLanguage.localized("Apple Vision 本地 OCR · 完成后可在手动文本中校对"),
+                                completedItems: completed, totalItems: total
+                            ))
+                        }
                     }
                     let ocr = if track.isPGS {
                         try await LocalPGSOCRService().recognize(
@@ -1237,6 +1290,11 @@ final class AppViewModel: ObservableObject {
                     detail: "手动翻译完成 \(session.completedChunkCount)/\(session.totalChunkCount) 份",
                     progress: 0.20 + 0.70 * Double(session.completedChunkCount) / Double(max(1, session.totalChunkCount))
                 )
+            } catch is CancellationError {
+                manualStatusIsError = false
+                manualStatusMessage = AppInterfaceLanguage.localized("字幕提取已取消，可以重试。")
+                updateCurrentBatchJob(status: .ready, detail: "已取消，可继续处理", progress: 0)
+                finishJobTiming()
             } catch {
                 let message = error.localizedDescription
                 errorMessage = message
@@ -1244,7 +1302,6 @@ final class AppViewModel: ObservableObject {
                 updateCurrentBatchJob(status: .failed, detail: message, progress: 0)
                 finishJobTiming()
             }
-            isWorking = false
         }
     }
 
@@ -1439,8 +1496,13 @@ final class AppViewModel: ObservableObject {
               let mediaInfo,
               let output = defaultOutputURL,
               let session = manualSession else { return }
+        let requestedOutputMode = subtitleOutputMode
+        let requestedDeliveryMode = deliveryMode
+        let requestedSourceLanguage = sourceLanguage
+        let requestedTargetLanguage = targetLanguage
+        let document: SubtitleDocument
         do {
-            _ = try session.mergedDocument(outputMode: subtitleOutputMode)
+            document = try session.mergedDocument(outputMode: requestedOutputMode)
         } catch {
             manualStatusIsError = true
             manualStatusMessage = error.localizedDescription
@@ -1450,15 +1512,16 @@ final class AppViewModel: ObservableObject {
         if jobStartedAt == nil { beginJobTiming() }
         errorMessage = nil
         outputURL = nil
-        let requestedOutputMode = subtitleOutputMode
-        let requestedDeliveryMode = deliveryMode
-        let requestedSourceLanguage = sourceLanguage
-        let requestedTargetLanguage = targetLanguage
+        let workflowGeneration = UUID()
+        translationGeneration = workflowGeneration
         translationTask = Task {
+            defer {
+                isWorking = false
+                translationTask = nil
+            }
             let temporaryRoot = FileManager.default.temporaryDirectory
                 .appendingPathComponent("MKVSubtitleTranslator-ManualOutput-\(UUID().uuidString)", isDirectory: true)
             do {
-                let document = try session.mergedDocument(outputMode: requestedOutputMode)
                 setProgress(PipelineProgress(
                     phase: .writingSubtitle,
                     completedChunks: session.totalChunkCount,
@@ -1471,7 +1534,7 @@ final class AppViewModel: ObservableObject {
                     if FileManager.default.fileExists(atPath: output.path) && !overwrite {
                         throw AppError.outputExists(output)
                     }
-                    try SubtitleWriter().write(document, to: output)
+                    try SubtitleWriter().write(document, to: output, overwrite: overwrite)
                 } else {
                     try FileManager.default.createDirectory(at: temporaryRoot, withIntermediateDirectories: true)
                     defer { try? FileManager.default.removeItem(at: temporaryRoot) }
@@ -1492,7 +1555,9 @@ final class AppViewModel: ObservableObject {
                         durationSeconds: mediaInfo.durationSeconds
                     ) { [weak self] fraction in
                         Task { @MainActor in
-                            self?.setProgress(PipelineProgress(
+                            guard let self,
+                                  self.translationGeneration == workflowGeneration else { return }
+                            self.setProgress(PipelineProgress(
                                 phase: .muxing,
                                 completedChunks: session.totalChunkCount,
                                 totalChunks: session.totalChunkCount,
@@ -1534,12 +1599,16 @@ final class AppViewModel: ObservableObject {
                         targetLanguage: requestedTargetLanguage
                     )
                 }
+            } catch is CancellationError {
+                manualStatusIsError = false
+                manualStatusMessage = AppInterfaceLanguage.localized("字幕生成已取消；已完成的手动分段仍然保留。")
+                updateCurrentBatchJob(status: .ready, detail: "已取消，可继续处理", progress: 0.9)
+                finishJobTiming()
             } catch {
                 errorMessage = error.localizedDescription
                 updateCurrentBatchJob(status: .failed, detail: error.localizedDescription, progress: 0.9)
                 finishJobTiming()
             }
-            isWorking = false
         }
     }
 
@@ -1617,7 +1686,13 @@ final class AppViewModel: ObservableObject {
         let requestedDeliveryMode = deliveryMode
         let requestedSourceLanguage = sourceLanguage
         let requestedTargetLanguage = targetLanguage
+        let workflowGeneration = UUID()
+        translationGeneration = workflowGeneration
         translationTask = Task {
+            defer {
+                isWorking = false
+                translationTask = nil
+            }
             do {
                 let result = try await pipeline.run(
                     input: input,
@@ -1632,11 +1707,23 @@ final class AppViewModel: ObservableObject {
                     targetLanguage: requestedTargetLanguage,
                     overwrite: overwrite
                 ) { [weak self] progress in
-                    Task { @MainActor in self?.setProgress(progress) }
+                    Task { @MainActor in
+                        guard let self,
+                              self.translationGeneration == workflowGeneration else { return }
+                        self.setProgress(progress)
+                    }
                 }
                 outputURL = result
                 completedOutputMode = requestedOutputMode
                 completedDeliveryMode = requestedDeliveryMode
+            } catch is CancellationError {
+                errorMessage = nil
+                retryableWorkflowErrorMessage = nil
+                finishJobTiming()
+            } catch let appError as AppError where appError == .cancelled {
+                errorMessage = nil
+                retryableWorkflowErrorMessage = nil
+                finishJobTiming()
             } catch {
                 let message = error.localizedDescription
                 errorMessage = message
@@ -1651,11 +1738,13 @@ final class AppViewModel: ObservableObject {
                 if case AppError.codexServiceUnavailable = error { codexStatus = .quotaOrServiceUnavailable }
                 if case AppError.codexNotLoggedIn = error { codexStatus = .notLoggedIn }
             }
-            isWorking = false
         }
     }
 
     func cancel() {
+        // Invalidate already-enqueued progress callbacks before asking the
+        // underlying process/OCR task to stop, so cancelled UI cannot regress.
+        translationGeneration = UUID()
         translationTask?.cancel()
     }
 
@@ -1851,6 +1940,28 @@ final class AppViewModel: ObservableObject {
         }
     }
 
+    private func persistBatchQueueNow() async {
+        batchPersistenceRevision &+= 1
+        let revision = batchPersistenceRevision
+        let snapshot = batchJobs
+        try? await batchQueueStore.save(snapshot, revision: revision)
+    }
+
+    private func persistBatchQueueSnapshot() {
+        batchPersistenceRevision &+= 1
+        let revision = batchPersistenceRevision
+        let snapshot = batchJobs
+        let store = batchQueueStore
+        Task { try? await store.save(snapshot, revision: revision) }
+    }
+
+    private func persistBatchQueueClear() {
+        batchPersistenceRevision &+= 1
+        let revision = batchPersistenceRevision
+        let store = batchQueueStore
+        Task { try? await store.clear(revision: revision) }
+    }
+
     private func updateCurrentBatchJob(
         status: BatchJobStatus,
         detail: String,
@@ -1867,7 +1978,7 @@ final class AppViewModel: ObservableObject {
             batchJobs[index].completedAt = Date()
             batchJobs[index].outputPath = output?.path
         }
-        Task { try? await batchQueueStore.save(batchJobs) }
+        persistBatchQueueSnapshot()
     }
 
     private func enqueueManualSave(

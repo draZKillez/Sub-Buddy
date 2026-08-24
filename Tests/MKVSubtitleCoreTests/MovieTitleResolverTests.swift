@@ -16,6 +16,13 @@ final class MovieTitleResolverTests: XCTestCase {
         XCTAssertEqual(result.year, 2016)
     }
 
+    func testContainerTitleUsesFileNameAsYearFallback() {
+        let url = URL(fileURLWithPath: "/Movies/Arrival.2016.1080p.mkv")
+        let result = MovieTitleResolver().resolve(fileURL: url, containerTitle: "Arrival")
+        XCTAssertEqual(result.originalTitle, "Arrival")
+        XCTAssertEqual(result.year, 2016)
+    }
+
     func testHandlesSpacesAndReleaseGroup() {
         let url = URL(fileURLWithPath: "/Movies/Everything Everywhere All at Once 2022 WEB-DL 1080p H264-NTb.mkv")
         let result = MovieTitleResolver().resolve(fileURL: url, containerTitle: nil)

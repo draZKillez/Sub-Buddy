@@ -3,11 +3,11 @@ set -euo pipefail
 
 PROJECT_DIR="${0:A:h:h}"
 OUTPUT_DIR="$PROJECT_DIR/outputs"
-APP_NAME="AI看剧伴侣"
+APP_NAME="Sub Buddy"
 EXECUTABLE_NAME="MKVSubtitleTranslator"
-VERSION="${APP_VERSION:-0.7.1}"
-BUILD_NUMBER="${APP_BUILD_NUMBER:-18}"
-UPDATE_REPOSITORY="${GITHUB_REPOSITORY:-OWNER/REPOSITORY}"
+VERSION="${APP_VERSION:-0.8.0}"
+BUILD_NUMBER="${APP_BUILD_NUMBER:-19}"
+UPDATE_REPOSITORY="${GITHUB_REPOSITORY:-}"
 SIGN_IDENTITY="${CODESIGN_IDENTITY:--}"
 APP_PATH="$OUTPUT_DIR/$APP_NAME.app"
 DMG_PATH="$OUTPUT_DIR/$APP_NAME-$VERSION.dmg"
@@ -16,12 +16,35 @@ PACKAGE_CACHE="$PROJECT_DIR/.build/package-cache"
 ARM_SCRATCH="$PROJECT_DIR/.build/package-arm64-release"
 INTEL_SCRATCH="$PROJECT_DIR/.build/package-x86_64-release"
 TOOLS_ROOT="$PROJECT_DIR/Vendor/Tools/macos"
+FFMPEG_WRAPPER_SOURCE="$PROJECT_DIR/Vendor/MKVFFmpeg/src/MKVFFmpeg.c"
+BITMAP_CLI_SOURCE="$PROJECT_DIR/Vendor/MKVFFmpeg/src/MKVBitmapDecoderCLI.c"
 WHISPER_FRAMEWORK="$PROJECT_DIR/Vendor/Frameworks/Whisper/build-apple/whisper.xcframework/macos-arm64_x86_64/whisper.framework"
 SPARKLE_FRAMEWORK="$PROJECT_DIR/Vendor/Frameworks/Sparkle/Sparkle.xcframework/macos-arm64_x86_64/Sparkle.framework"
 
+if [[ -z "$UPDATE_REPOSITORY" ]]; then
+  ORIGIN_URL="$(git -C "$PROJECT_DIR" config --get remote.origin.url 2>/dev/null || true)"
+  case "$ORIGIN_URL" in
+    https://github.com/*)
+      UPDATE_REPOSITORY="${ORIGIN_URL#https://github.com/}"
+      ;;
+    git@github.com:*)
+      UPDATE_REPOSITORY="${ORIGIN_URL#git@github.com:}"
+      ;;
+    ssh://git@github.com/*)
+      UPDATE_REPOSITORY="${ORIGIN_URL#ssh://git@github.com/}"
+      ;;
+  esac
+  UPDATE_REPOSITORY="${UPDATE_REPOSITORY%.git}"
+fi
+if [[ "$UPDATE_REPOSITORY" != */* ]]; then
+  UPDATE_REPOSITORY="OWNER/REPOSITORY"
+fi
+
 zsh "$PROJECT_DIR/scripts/setup_dependencies.sh"
 
-if [[ ! -x "$TOOLS_ROOT/ffmpeg" || ! -x "$TOOLS_ROOT/ffprobe" || ! -x "$TOOLS_ROOT/mkvbitmapdecode" ]]; then
+if [[ ! -x "$TOOLS_ROOT/ffmpeg" || ! -x "$TOOLS_ROOT/ffprobe" || ! -x "$TOOLS_ROOT/mkvbitmapdecode" \
+      || "$TOOLS_ROOT/mkvbitmapdecode" -ot "$FFMPEG_WRAPPER_SOURCE" \
+      || "$TOOLS_ROOT/mkvbitmapdecode" -ot "$BITMAP_CLI_SOURCE" ]]; then
   zsh "$PROJECT_DIR/scripts/build_ffmpeg_macos.sh"
 fi
 
@@ -105,9 +128,9 @@ chmod 755 "$APP_PATH/Contents/Resources/Tools/ffmpeg" "$APP_PATH/Contents/Resour
 /usr/bin/codesign --force --deep --options runtime --sign "$SIGN_IDENTITY" "$APP_PATH"
 /usr/bin/codesign --verify --deep --strict --verbose=2 "$APP_PATH"
 
-STAGING_DIR="$(mktemp -d "${TMPDIR:-/tmp}/ai-viewing-companion-dmg.XXXXXX")"
+STAGING_DIR="$(mktemp -d "${TMPDIR:-/tmp}/sub-buddy-dmg.XXXXXX")"
 cleanup() {
-  if [[ -n "${STAGING_DIR:-}" && "$STAGING_DIR" == *ai-viewing-companion-dmg.* ]]; then
+  if [[ -n "${STAGING_DIR:-}" && "$STAGING_DIR" == *sub-buddy-dmg.* ]]; then
     rm -rf "$STAGING_DIR"
   fi
 }

@@ -8,7 +8,7 @@ final class MobileViewModel: ObservableObject {
         case idle
         case inspecting = "正在读取 MKV 轨道"
         case extracting = "正在提取字幕"
-        case ocr = "正在本机识别 PGS"
+        case ocr = "正在本机识别图片字幕"
         case parsing = "正在整理字幕"
     }
 
@@ -86,7 +86,7 @@ final class MobileViewModel: ObservableObject {
         return mediaInfo?.subtitleTracks.first { $0.streamIndex == selectedTrackIndex }
     }
     var canPrepareSelectedTrack: Bool {
-        selectedTrack?.isProcessable == true && !isBusy && chunkSizeIsValid && languagePairIsValid
+        inputURL != nil && selectedTrack?.isProcessable == true && !isBusy && chunkSizeIsValid && languagePairIsValid
     }
     var chunkSizeIsValid: Bool { (1...1_000).contains(chunkSize) }
     var rebuildChunkSizeIsValid: Bool { (1...1_000).contains(rebuildChunkSize) }
@@ -345,7 +345,7 @@ final class MobileViewModel: ObservableObject {
                     setStatus("这个 MKV 中没有检测到字幕轨道；原工作区未被修改。", error: true)
                 } else if preferred == nil {
                     finishOperation(token: token)
-                    setStatus("检测到 \(info.subtitleTracks.count) 条字幕，但没有可处理的文本或 PGS 轨道；原工作区未被修改。", error: true)
+                    setStatus("检测到 \(info.subtitleTracks.count) 条字幕，但没有可处理的文本或支持本地 OCR 的图片字幕；原工作区未被修改。", error: true)
                 } else {
                     commitNewInputState(
                         sourceURL: url,
@@ -702,6 +702,7 @@ final class MobileViewModel: ObservableObject {
         clockTask = nil
         restoreIdleTimer()
         workPhase = .idle
+        activeTask = nil
         phaseFraction = nil
         estimatedRemaining = nil
     }
@@ -713,6 +714,7 @@ final class MobileViewModel: ObservableObject {
         clockTask = nil
         restoreIdleTimer()
         workPhase = .idle
+        activeTask = nil
         phaseFraction = nil
         estimatedRemaining = nil
     }

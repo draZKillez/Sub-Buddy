@@ -3,15 +3,19 @@ set -euo pipefail
 
 PROJECT_ROOT="${0:A:h:h}"
 BUILD_ROOT="$PROJECT_ROOT/.build/ios-release"
-APP_NAME="AI看剧伴侣"
+APP_NAME="Sub Buddy"
 EXECUTABLE="MKVSubtitleTranslatorIOS"
 APP_BUNDLE="$BUILD_ROOT/Payload/$APP_NAME.app"
-OUTPUT="$PROJECT_ROOT/outputs/$APP_NAME-iOS-0.4.0-LiveContainer.ipa"
+OUTPUT="$PROJECT_ROOT/outputs/Sub-Buddy-iOS-0.4.0-LiveContainer.ipa"
 SDK_PATH="$(xcrun --sdk iphoneos --show-sdk-path)"
 SWIFTC="$(xcrun --sdk iphoneos --find swiftc)"
 FRAMEWORK="$PROJECT_ROOT/Vendor/Frameworks/MKVFFmpeg.framework"
+FFMPEG_WRAPPER_SOURCE="$PROJECT_ROOT/Vendor/MKVFFmpeg/src/MKVFFmpeg.c"
+FFMPEG_WRAPPER_HEADER="$PROJECT_ROOT/Vendor/MKVFFmpeg/include/MKVFFmpeg.h"
 
-if [[ ! -f "$FRAMEWORK/MKVFFmpeg" ]]; then
+if [[ ! -f "$FRAMEWORK/MKVFFmpeg" \
+      || "$FRAMEWORK/MKVFFmpeg" -ot "$FFMPEG_WRAPPER_SOURCE" \
+      || "$FRAMEWORK/MKVFFmpeg" -ot "$FFMPEG_WRAPPER_HEADER" ]]; then
     zsh "$PROJECT_ROOT/scripts/build_ffmpeg_ios.sh"
 fi
 

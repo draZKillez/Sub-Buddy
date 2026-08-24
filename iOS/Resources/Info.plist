@@ -5,15 +5,15 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>zh-Hans</string>
     <key>CFBundleDisplayName</key>
-    <string>AI看剧伴侣</string>
+    <string>Sub Buddy</string>
     <key>CFBundleExecutable</key>
-    <string>AIViewingCompanionIOS</string>
+    <string>MKVSubtitleTranslatorIOS</string>
     <key>CFBundleIdentifier</key>
     <string>com.mkvsubtitletranslator.ios</string>
     <key>CFBundleInfoDictionaryVersion</key>
     <string>6.0</string>
     <key>CFBundleName</key>
-    <string>MKVSubtitleTranslatorIOS</string>
+    <string>Sub Buddy</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
 	<key>CFBundleShortVersionString</key>

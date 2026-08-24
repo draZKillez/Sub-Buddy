@@ -2,6 +2,25 @@ import XCTest
 @testable import MKVSubtitleCore
 
 final class SubtitleParserWriterTests: XCTestCase {
+    func testSRTWriterCanRefuseToOverwriteAFileCreatedAfterPreflight() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("SubtitleWriter-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let output = root.appendingPathComponent("movie.srt")
+        try Data("existing".utf8).write(to: output)
+        let document = SubtitleDocument(format: .srt, cues: [
+            SubtitleCue(id: 1, startMilliseconds: 0, endMilliseconds: 1_000, text: "new")
+        ])
+
+        XCTAssertThrowsError(try SubtitleWriter().write(document, to: output, overwrite: false))
+        XCTAssertEqual(try String(contentsOf: output, encoding: .utf8), "existing")
+    }
+
+    func testEmptySRTWriterKeepsLegacyTrailingNewline() throws {
+        let output = try SubtitleWriter().string(from: SubtitleDocument(format: .srt, cues: []))
+        XCTAssertEqual(output, "\n")
+    }
+
     func testSRTRejectsEmptyMalformedAndDuplicateCueIDs() {
         let parser = SubtitleParser()
         XCTAssertThrowsError(try parser.parse(data: Data(), format: .srt))

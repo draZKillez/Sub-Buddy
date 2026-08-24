@@ -75,6 +75,19 @@ public enum SubtitleLanguage: String, Codable, CaseIterable, Sendable, Identifia
     case russian = "ru"
     case arabic = "ar"
 
+    private static let aliasTable: [SubtitleLanguage: Set<String>] = [
+        .english: ["en", "eng", "english"],
+        .simplifiedChinese: ["zh", "zho", "chi", "cmn", "zh-cn", "zh-hans", "chinese"],
+        .spanish: ["es", "spa", "spanish"],
+        .french: ["fr", "fra", "fre", "french"],
+        .german: ["de", "deu", "ger", "german"],
+        .japanese: ["ja", "jpn", "japanese"],
+        .korean: ["ko", "kor", "korean"],
+        .portuguese: ["pt", "por", "portuguese", "pt-br", "pt-pt"],
+        .russian: ["ru", "rus", "russian"],
+        .arabic: ["ar", "ara", "arabic"]
+    ]
+
     public var id: String { rawValue }
 
     public var displayName: String {
@@ -157,20 +170,7 @@ public enum SubtitleLanguage: String, Codable, CaseIterable, Sendable, Identifia
         return aliases.contains(normalized) || aliases.contains(base)
     }
 
-    private var aliases: Set<String> {
-        switch self {
-        case .english: return ["en", "eng", "english"]
-        case .simplifiedChinese: return ["zh", "zho", "chi", "cmn", "zh-cn", "zh-hans", "chinese"]
-        case .spanish: return ["es", "spa", "spanish"]
-        case .french: return ["fr", "fra", "fre", "french"]
-        case .german: return ["de", "deu", "ger", "german"]
-        case .japanese: return ["ja", "jpn", "japanese"]
-        case .korean: return ["ko", "kor", "korean"]
-        case .portuguese: return ["pt", "por", "portuguese", "pt-br", "pt-pt"]
-        case .russian: return ["ru", "rus", "russian"]
-        case .arabic: return ["ar", "ara", "arabic"]
-        }
-    }
+    private var aliases: Set<String> { Self.aliasTable[self] ?? [] }
 }
 
 public enum SubtitleFormat: String, Codable, Sendable {
@@ -261,6 +261,11 @@ public struct SubtitleDocument: Codable, Equatable, Sendable {
 }
 
 public struct SubtitleTrack: Codable, Equatable, Sendable, Identifiable {
+    private static let sdhTitleExpression = try? NSRegularExpression(
+        pattern: #"(?:\bSDH\b|\bhearing[ -]?impaired\b|\bCC\b)"#,
+        options: .caseInsensitive
+    )
+
     public var id: Int { streamIndex }
     public let streamIndex: Int
     public let codec: String
@@ -293,6 +298,14 @@ public struct SubtitleTrack: Codable, Equatable, Sendable, Identifiable {
 
     public var isEnglish: Bool {
         SubtitleLanguage.english.matches(language)
+    }
+
+    public static func titleSuggestsSDH(_ title: String) -> Bool {
+        guard let expression = sdhTitleExpression else { return false }
+        return expression.firstMatch(
+            in: title,
+            range: NSRange(title.startIndex..., in: title)
+        ) != nil
     }
 
     public func matches(_ selectedLanguage: SubtitleLanguage) -> Bool {

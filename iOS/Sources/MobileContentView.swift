@@ -25,7 +25,7 @@ struct MobileContentView: View {
                 .padding()
             }
             .background(Color(uiColor: .systemGroupedBackground))
-            .navigationTitle(AppInterfaceLanguage.localized("AI看剧伴侣"))
+            .navigationTitle(AppInterfaceLanguage.localized("字幕搭档"))
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Menu {

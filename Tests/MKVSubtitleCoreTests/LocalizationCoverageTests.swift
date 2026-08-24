@@ -59,6 +59,22 @@ final class LocalizationCoverageTests: XCTestCase {
         XCTAssertTrue(missing.isEmpty, "Missing English fallbacks: \(missing.sorted())")
     }
 
+    func testLocalizedFormatPlaceholdersMatchTheirKeys() throws {
+        for locale in ["zh-Hans", "en", "es", "fr", "de", "ja", "ko", "pt", "ru", "ar"] {
+            let file = repositoryRoot
+                .appendingPathComponent("Localization")
+                .appendingPathComponent("\(locale).lproj")
+                .appendingPathComponent("Localizable.strings")
+            for (key, value) in try localizationEntries(in: file) {
+                XCTAssertEqual(
+                    formatPlaceholders(in: value).sorted(),
+                    formatPlaceholders(in: key).sorted(),
+                    "\(locale) has incompatible format placeholders for key: \(key)"
+                )
+            }
+        }
+    }
+
     private func localizationKeys(in file: URL) throws -> Set<String> {
         let contents = try String(contentsOf: file, encoding: .utf8)
         let expression = try NSRegularExpression(
@@ -70,5 +86,30 @@ final class LocalizationCoverageTests: XCTestCase {
             guard let keyRange = Range(match.range(at: 1), in: contents) else { return nil }
             return String(contents[keyRange])
         })
+    }
+
+    private func localizationEntries(in file: URL) throws -> [(String, String)] {
+        let contents = try String(contentsOf: file, encoding: .utf8)
+        let expression = try NSRegularExpression(
+            pattern: #"^"((?:[^"\\]|\\.)*)"\s*=\s*"((?:[^"\\]|\\.)*)"\s*;"#,
+            options: [.anchorsMatchLines]
+        )
+        let range = NSRange(contents.startIndex..., in: contents)
+        return expression.matches(in: contents, range: range).compactMap { match in
+            guard let keyRange = Range(match.range(at: 1), in: contents),
+                  let valueRange = Range(match.range(at: 2), in: contents) else { return nil }
+            return (String(contents[keyRange]), String(contents[valueRange]))
+        }
+    }
+
+    private func formatPlaceholders(in value: String) -> [String] {
+        let expression = try! NSRegularExpression(
+            pattern: #"(?<!%)%(?!%)(?:\d+\$)?[-+0 #']*(?:\d+|\*)?(?:\.\d+)?(?:hh|h|ll|l|L|z|j|t)?([@diuoxXfFeEgGaAcCsSp])"#
+        )
+        let range = NSRange(value.startIndex..., in: value)
+        return expression.matches(in: value, range: range).compactMap { match in
+            guard let conversionRange = Range(match.range(at: 1), in: value) else { return nil }
+            return String(value[conversionRange])
+        }
     }
 }

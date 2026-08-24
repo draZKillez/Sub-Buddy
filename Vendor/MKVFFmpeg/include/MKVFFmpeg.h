@@ -46,6 +46,14 @@ MKVFF_EXPORT int32_t mkvff_inspect(
     char **error_message
 );
 
+/* Same inspection with an interrupt callback for responsive UI cancellation. */
+MKVFF_EXPORT int32_t mkvff_inspect_cancellable(
+    const char *input_path,
+    MKVFFMediaInfo **media_info,
+    MKVFFOperationState *state,
+    char **error_message
+);
+
 MKVFF_EXPORT void mkvff_media_info_free(MKVFFMediaInfo *media_info);
 
 MKVFF_EXPORT MKVFFOperationState *mkvff_operation_state_create(void);

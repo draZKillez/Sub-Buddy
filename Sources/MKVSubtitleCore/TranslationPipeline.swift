@@ -224,7 +224,7 @@ public final class TranslationPipeline: @unchecked Sendable {
                 return chunk.index
             })
             try await jobStore.save(record, input: input)
-            let restoredItemCount = document.cues.reduce(into: 0) { count, cue in
+            var completedItemCount = document.cues.reduce(into: 0) { count, cue in
                 if record.translatedItems[cue.id] != nil { count += 1 }
             }
             progress(PipelineProgress(
@@ -234,7 +234,7 @@ public final class TranslationPipeline: @unchecked Sendable {
                 detail: record.completedChunkIndexes.isEmpty
                     ? "字幕已提取，共 \(document.cues.count) 条；正在准备第 1 块"
                     : "已恢复 \(record.completedChunkIndexes.count)/\(chunks.count) 块保存进度",
-                completedItems: restoredItemCount,
+                completedItems: completedItemCount,
                 totalItems: document.cues.count
             ))
             let engine = TranslationEngine(provider: provider)
@@ -246,7 +246,8 @@ public final class TranslationPipeline: @unchecked Sendable {
                     progress(translationProgress(
                         chunk: chunk,
                         record: record,
-                        allCues: document.cues,
+                        completedItems: completedItemCount,
+                        totalItems: document.cues.count,
                         totalChunks: chunks.count,
                         detailPrefix: "已从保存进度恢复"
                     ))
@@ -255,7 +256,8 @@ public final class TranslationPipeline: @unchecked Sendable {
                 progress(translationProgress(
                     chunk: chunk,
                     record: record,
-                    allCues: document.cues,
+                    completedItems: completedItemCount,
+                    totalItems: document.cues.count,
                     totalChunks: chunks.count,
                     detailPrefix: "本块 \(chunk.core.count) 条正一次性提交给 \(provider.progressLabel)"
                 ))
@@ -269,19 +271,24 @@ public final class TranslationPipeline: @unchecked Sendable {
                     progress(self.translationProgress(
                         chunk: chunk,
                         record: record,
-                        allCues: document.cues,
+                        completedItems: completedItemCount,
+                        totalItems: document.cues.count,
                         totalChunks: chunks.count,
                         detailPrefix: "正在补齐缺失 ID；若 JSON 被截断将自动分批恢复"
                     ))
                 }
-                for item in response.items { record.translatedItems[item.id] = item.text }
+                for item in response.items {
+                    if record.translatedItems[item.id] == nil { completedItemCount += 1 }
+                    record.translatedItems[item.id] = item.text
+                }
                 record.glossary = mergeGlossary(record.glossary, response.glossaryUpdates)
                 record.completedChunkIndexes.insert(chunk.index)
                 try await jobStore.save(record, input: input)
                 progress(translationProgress(
                     chunk: chunk,
                     record: record,
-                    allCues: document.cues,
+                    completedItems: completedItemCount,
+                    totalItems: document.cues.count,
                     totalChunks: chunks.count,
                     detailPrefix: "本块翻译完成"
                 ))
@@ -289,6 +296,7 @@ public final class TranslationPipeline: @unchecked Sendable {
 
             let composer = SubtitleOutputComposer()
             for index in document.cues.indices {
+                if index.isMultiple(of: 256) { try Task.checkCancellation() }
                 guard let translated = record.translatedItems[document.cues[index].id] else {
                     throw AppError.invalidTranslation("字幕 ID \(document.cues[index].id) 尚未翻译。")
                 }
@@ -312,7 +320,7 @@ public final class TranslationPipeline: @unchecked Sendable {
             if deliveryMode == .sidecarSRT {
                 if fileManager.fileExists(atPath: output.path) && !overwrite { throw AppError.outputExists(output) }
                 guard input.standardizedFileURL != output.standardizedFileURL else { throw AppError.originalOverwriteForbidden }
-                try writer.write(srtDocument, to: output)
+                try writer.write(srtDocument, to: output, overwrite: overwrite)
                 try await jobStore.clear(input: input, trackIndex: track.streamIndex)
                 progress(PipelineProgress(
                     phase: .completed,
@@ -400,13 +408,11 @@ public final class TranslationPipeline: @unchecked Sendable {
     private func translationProgress(
         chunk: TranslationChunk,
         record: TranslationJobRecord,
-        allCues: [SubtitleCue],
+        completedItems: Int,
+        totalItems: Int,
         totalChunks: Int,
         detailPrefix: String
     ) -> PipelineProgress {
-        let completedItems = allCues.reduce(into: 0) { count, cue in
-            if record.translatedItems[cue.id] != nil { count += 1 }
-        }
         let firstID = chunk.core.first?.id ?? 0
         let lastID = chunk.core.last?.id ?? 0
         return PipelineProgress(
@@ -415,7 +421,7 @@ public final class TranslationPipeline: @unchecked Sendable {
             totalChunks: totalChunks,
             detail: "\(detailPrefix) · 第 \(chunk.index + 1)/\(totalChunks) 块 · ID \(firstID)–\(lastID) · \(chunk.core.count) 条",
             completedItems: completedItems,
-            totalItems: allCues.count
+            totalItems: totalItems
         )
     }
 

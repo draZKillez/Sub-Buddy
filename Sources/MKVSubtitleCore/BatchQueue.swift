@@ -62,6 +62,10 @@ public struct BatchJob: Codable, Equatable, Sendable, Identifiable {
 }
 
 public struct MKVFolderScanner: @unchecked Sendable {
+    private static let generatedSuffixExpression = try? NSRegularExpression(
+        pattern: #"_(?:en|zh|es|fr|de|ja|ko|pt|ru|ar)(?:_bilingual)?$"#,
+        options: .caseInsensitive
+    )
     private let fileManager: FileManager
 
     public init(fileManager: FileManager = .default) {
@@ -86,8 +90,12 @@ public struct MKVFolderScanner: @unchecked Sendable {
         let sourceKeys = Set(urls.map(Self.fileKey))
         let filtered = urls.filter { url in
             let stem = url.deletingPathExtension().lastPathComponent.lowercased()
-            let languageSuffix = #"_(?:en|zh|es|fr|de|ja|ko|pt|ru|ar)(?:_bilingual)?$"#
-            guard let range = stem.range(of: languageSuffix, options: .regularExpression) else { return true }
+            guard let expression = Self.generatedSuffixExpression,
+                  let match = expression.firstMatch(
+                    in: stem,
+                    range: NSRange(stem.startIndex..., in: stem)
+                  ),
+                  let range = Range(match.range, in: stem) else { return true }
             let sourceStem = String(stem[..<range.lowerBound])
             let sourceKey = Self.fileKey(directory: url.deletingLastPathComponent(), stem: sourceStem)
             return !sourceKeys.contains(sourceKey)
@@ -110,6 +118,7 @@ public struct MKVFolderScanner: @unchecked Sendable {
 public actor BatchQueueStore {
     private let fileURL: URL
     private let fileManager: FileManager
+    private var latestMutationRevision: UInt64 = 0
 
     public init(fileURL: URL? = nil) {
         let manager = FileManager.default
@@ -134,12 +143,20 @@ public actor BatchQueueStore {
         return try JSONDecoder().decode([BatchJob].self, from: Data(contentsOf: fileURL))
     }
 
-    public func save(_ jobs: [BatchJob]) throws {
+    public func save(_ jobs: [BatchJob], revision: UInt64? = nil) throws {
+        if let revision {
+            guard revision >= latestMutationRevision else { return }
+            latestMutationRevision = revision
+        }
         try fileManager.createDirectory(at: fileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
         try JSONEncoder().encode(jobs).write(to: fileURL, options: .atomic)
     }
 
-    public func clear() throws {
+    public func clear(revision: UInt64? = nil) throws {
+        if let revision {
+            guard revision >= latestMutationRevision else { return }
+            latestMutationRevision = revision
+        }
         if fileManager.fileExists(atPath: fileURL.path) { try fileManager.removeItem(at: fileURL) }
     }
 }

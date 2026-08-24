@@ -108,8 +108,8 @@
 "DVB、XSUB 等其他图片字幕暂未支持 OCR。" = "El OCR de DVB, XSUB y otros subtítulos de imagen aún no es compatible.";
 "PGS 与 VobSub 可在设备上使用 Apple Vision OCR；图片不会上传。" = "PGS y VobSub pueden usar Apple Vision OCR en el dispositivo; las imágenes no se suben.";
 "图片字幕 OCR 原文校对（建议先检查低置信度内容）" = "Revisar texto OCR de subtítulos de imagen (primero los resultados de baja confianza)";
-"AI看剧伴侣" = "AI Viewing Companion";
-"AI Viewing Companion · 本地字幕生成与翻译" = "AI Viewing Companion · Creación y traducción local de subtítulos";
+"字幕搭档" = "Sub Buddy";
+"Sub Buddy · 字幕提取、识别与翻译" = "Sub Buddy · Extrae, reconoce y traduce subtítulos";
 "Apple 本地翻译" = "Traducción local de Apple";
 "软件更新" = "Actualización de software";
 "检查更新…" = "Buscar actualizaciones…";
@@ -151,3 +151,5 @@
 "继续：%@" = "Continuar: %@";
 "已准备好开始" = "Listo para comenzar";
 "翻译服务尚未就绪" = "El servicio de traducción no está listo";
+"字幕提取已取消，可以重试。" = "La extracción de subtítulos se canceló. Puedes intentarlo de nuevo.";
+"字幕生成已取消；已完成的手动分段仍然保留。" = "La generación de subtítulos se canceló; los segmentos manuales completados siguen guardados.";

@@ -105,7 +105,6 @@ int avc_whisper_transcribe(
     if (context == NULL || context->whisper == NULL || samples == NULL || sample_count <= 0) {
         return -1;
     }
-    atomic_store(&context->cancelled, false);
     AVCWhisperCallbacks callbacks = {
         .owner = context,
         .progress = progress_callback,

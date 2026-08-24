@@ -125,8 +125,8 @@ struct ContentView: View {
                     .clipShape(RoundedRectangle(cornerRadius: 10))
                     .frame(width: 42, height: 42)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("AI看剧伴侣").font(.headline)
-                    Text("AI Viewing Companion")
+                    Text("字幕搭档").font(.headline)
+                    Text("Sub Buddy")
                         .font(.caption2)
                         .foregroundStyle(.secondary)
                 }

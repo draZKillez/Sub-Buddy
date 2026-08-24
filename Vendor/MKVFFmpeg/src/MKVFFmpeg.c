@@ -51,7 +51,10 @@ const char *mkvff_version(void) {
     return av_version_info();
 }
 
-int32_t mkvff_inspect(const char *input_path, MKVFFMediaInfo **media_info, char **error_message) {
+static void mkvff_configure_interrupt(AVFormatContext *format, MKVFFOperationState *state);
+
+static int32_t mkvff_inspect_internal(const char *input_path, MKVFFMediaInfo **media_info,
+                                      MKVFFOperationState *state, char **error_message) {
     if (media_info) *media_info = NULL;
     if (error_message) *error_message = NULL;
     if (!input_path || !media_info) {
@@ -59,10 +62,16 @@ int32_t mkvff_inspect(const char *input_path, MKVFFMediaInfo **media_info, char 
         return AVERROR(EINVAL);
     }
 
-    AVFormatContext *format = NULL;
+    AVFormatContext *format = avformat_alloc_context();
+    if (!format) {
+        mkvff_set_error(error_message, "内存不足", AVERROR(ENOMEM));
+        return AVERROR(ENOMEM);
+    }
+    if (state) mkvff_configure_interrupt(format, state);
     int result = avformat_open_input(&format, input_path, NULL, NULL);
     if (result < 0) {
         mkvff_set_error(error_message, "无法打开 MKV", result);
+        avformat_close_input(&format);
         return result;
     }
     result = avformat_find_stream_info(format, NULL);
@@ -117,6 +126,15 @@ int32_t mkvff_inspect(const char *input_path, MKVFFMediaInfo **media_info, char 
     avformat_close_input(&format);
     *media_info = info;
     return 0;
+}
+
+int32_t mkvff_inspect(const char *input_path, MKVFFMediaInfo **media_info, char **error_message) {
+    return mkvff_inspect_internal(input_path, media_info, NULL, error_message);
+}
+
+int32_t mkvff_inspect_cancellable(const char *input_path, MKVFFMediaInfo **media_info,
+                                  MKVFFOperationState *state, char **error_message) {
+    return mkvff_inspect_internal(input_path, media_info, state, error_message);
 }
 
 void mkvff_media_info_free(MKVFFMediaInfo *media_info) {
@@ -243,7 +261,7 @@ int32_t mkvff_extract_subtitle(const char *input_path, int32_t stream_index, con
         mkvff_set_error(error_message, "提取参数无效", 0);
         return AVERROR(EINVAL);
     }
-    AVFormatContext *format = NULL;
+    AVFormatContext *format = avformat_alloc_context();
     FILE *output = NULL;
     AVPacket *packet = NULL;
     uint8_t *pending_data = NULL;
@@ -251,6 +269,11 @@ int32_t mkvff_extract_subtitle(const char *input_path, int32_t stream_index, con
     int64_t pending_start = 0;
     int64_t pending_end = 0;
     int cue_id = 1;
+    if (!format) {
+        mkvff_set_error(error_message, "内存不足", AVERROR(ENOMEM));
+        return AVERROR(ENOMEM);
+    }
+    mkvff_configure_interrupt(format, state);
     int result = avformat_open_input(&format, input_path, NULL, NULL);
     if (result < 0) {
         mkvff_set_error(error_message, "无法打开 MKV", result);
@@ -394,14 +417,14 @@ static int mkvff_write_i64_le(FILE *output, int64_t value) {
 
 static int mkvff_write_bitmap_cue(FILE *output, const AVSubtitle *subtitle,
                                   int64_t packet_start_ms, int64_t packet_duration_ms,
-                                  uint64_t *total_bytes) {
+                                  uint64_t *total_bytes, MKVFFOperationState *state) {
     int min_x = INT_MAX, min_y = INT_MAX, max_x = 0, max_y = 0;
     int bitmap_count = 0;
     for (unsigned int i = 0; i < subtitle->num_rects; ++i) {
         const AVSubtitleRect *rect = subtitle->rects[i];
         if (!rect || rect->type != SUBTITLE_BITMAP || !rect->data[0] || !rect->data[1] ||
             rect->w <= 0 || rect->h <= 0 || rect->linesize[0] < rect->w ||
-            rect->x < 0 || rect->y < 0) continue;
+            rect->x < 0 || rect->y < 0 || rect->nb_colors <= 0 || rect->nb_colors > 256) continue;
         if (rect->w > MKVFF_BITMAP_MAX_DIMENSION || rect->h > MKVFF_BITMAP_MAX_DIMENSION ||
             rect->x > INT_MAX - rect->w || rect->y > INT_MAX - rect->h) return AVERROR_INVALIDDATA;
         if (rect->x < min_x) min_x = rect->x;
@@ -427,12 +450,21 @@ static int mkvff_write_bitmap_cue(FILE *output, const AVSubtitle *subtitle,
     for (unsigned int i = 0; i < subtitle->num_rects; ++i) {
         const AVSubtitleRect *rect = subtitle->rects[i];
         if (!rect || rect->type != SUBTITLE_BITMAP || !rect->data[0] || !rect->data[1] ||
-            rect->w <= 0 || rect->h <= 0 || rect->linesize[0] < rect->w) continue;
+            rect->w <= 0 || rect->h <= 0 || rect->linesize[0] < rect->w ||
+            rect->x < 0 || rect->y < 0 || rect->nb_colors <= 0 || rect->nb_colors > 256 ||
+            rect->w > MKVFF_BITMAP_MAX_DIMENSION || rect->h > MKVFF_BITMAP_MAX_DIMENSION ||
+            rect->x > INT_MAX - rect->w || rect->y > INT_MAX - rect->h) continue;
         const uint32_t *palette = (const uint32_t *)rect->data[1];
         for (int y = 0; y < rect->h; ++y) {
+            if ((y & 63) == 0 && mkvff_cancelled(state)) {
+                av_free(rgba);
+                return AVERROR_EXIT;
+            }
             const uint8_t *indices = rect->data[0] + (size_t)y * (size_t)rect->linesize[0];
             for (int x = 0; x < rect->w; ++x) {
-                uint32_t color = palette[indices[x]];
+                unsigned int palette_index = indices[x];
+                if (palette_index >= (unsigned int)rect->nb_colors) continue;
+                uint32_t color = palette[palette_index];
                 uint8_t alpha = (uint8_t)(color >> 24);
                 if (!alpha) continue;
                 size_t target = ((size_t)(rect->y - min_y + y) * (size_t)width +
@@ -542,12 +574,16 @@ int32_t mkvff_decode_bitmap_subtitle(const char *input_path, int32_t stream_inde
                     av_rescale_q(timestamp, stream->time_base, (AVRational){1, 1000});
                 int64_t duration_ms = packet->duration > 0 ?
                     av_rescale_q(packet->duration, stream->time_base, (AVRational){1, 1000}) : 0;
-                int written = mkvff_write_bitmap_cue(output, &subtitle, start_ms, duration_ms, &total_bytes);
+                int written = mkvff_write_bitmap_cue(
+                    output, &subtitle, start_ms, duration_ms, &total_bytes, state
+                );
                 avsubtitle_free(&subtitle);
                 if (written < 0) {
                     result = written;
-                    mkvff_set_error(error_message, written == AVERROR(ENOMEM) ?
-                                    "VobSub 解码图片超过安全内存上限" : "VobSub 图片数据无效", result);
+                    const char *message = written == AVERROR_EXIT ? "任务已取消" :
+                        (written == AVERROR(ENOMEM) ?
+                         "VobSub 解码图片超过安全内存上限" : "VobSub 图片数据无效");
+                    mkvff_set_error(error_message, message, result);
                     av_packet_unref(packet); goto cleanup_bitmap;
                 }
                 if (written > 0) cue_count++;

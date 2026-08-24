@@ -4,6 +4,8 @@ import MKVFFmpeg
 final class NativeMKVService: @unchecked Sendable {
     private final class OperationHandle: @unchecked Sendable {
         let pointer: OpaquePointer
+        private let lock = NSLock()
+        private var cancellationRequested = false
 
         init?() {
             guard let pointer = mkvff_operation_state_create() else { return nil }
@@ -11,7 +13,17 @@ final class NativeMKVService: @unchecked Sendable {
         }
 
         deinit { mkvff_operation_state_free(pointer) }
-        func cancel() { mkvff_operation_state_cancel(pointer) }
+        func cancel() {
+            lock.lock()
+            cancellationRequested = true
+            lock.unlock()
+            mkvff_operation_state_cancel(pointer)
+        }
+        var isCancelled: Bool {
+            lock.lock()
+            defer { lock.unlock() }
+            return cancellationRequested
+        }
         var progress: Double { mkvff_operation_state_progress(pointer) }
     }
 
@@ -20,53 +32,58 @@ final class NativeMKVService: @unchecked Sendable {
     }
 
     func inspect(_ url: URL) async throws -> MediaInfo {
-        try await Task.detached(priority: .userInitiated) {
-            var nativeInfo: UnsafeMutablePointer<MKVFFMediaInfo>?
-            var errorMessage: UnsafeMutablePointer<CChar>?
-            let status = url.path.withCString { path in
-                mkvff_inspect(path, &nativeInfo, &errorMessage)
-            }
-            defer {
-                if let nativeInfo { mkvff_media_info_free(nativeInfo) }
-                if let errorMessage { mkvff_string_free(errorMessage) }
-            }
-            guard status == 0, let nativeInfo else {
-                let detail = errorMessage.map { String(cString: $0) } ?? "FFmpeg 无法读取该文件。"
-                throw AppError.invalidMedia(detail)
-            }
-            let value = nativeInfo.pointee
-            let count = Int(value.subtitle_track_count)
-            let tracks: [SubtitleTrack]
-            if count > 0, let base = value.subtitle_tracks {
-                tracks = (0..<count).map { index in
-                    let track = base.advanced(by: index).pointee
-                    let codec = Self.string(from: track.codec)
-                    let title = Self.string(from: track.title)
-                    return SubtitleTrack(
-                        streamIndex: Int(track.stream_index),
-                        codec: codec,
-                        language: Self.string(from: track.language),
-                        title: title,
-                        isDefault: track.is_default != 0,
-                        isForced: track.is_forced != 0,
-                        isSDH: track.is_hearing_impaired != 0 || title.range(
-                            of: #"(?:\bSDH\b|\bhearing[ -]?impaired\b|\bCC\b)"#,
-                            options: [.regularExpression, .caseInsensitive]
-                        ) != nil,
-                        isText: track.is_text != 0
-                    )
+        guard let handle = OperationHandle() else {
+            throw AppError.processFailed(tool: "内嵌 FFmpeg", code: -1, message: "无法创建任务状态。")
+        }
+        return try await withTaskCancellationHandler {
+            try await Task.detached(priority: .userInitiated) {
+                var nativeInfo: UnsafeMutablePointer<MKVFFMediaInfo>?
+                var errorMessage: UnsafeMutablePointer<CChar>?
+                let status = url.path.withCString { path in
+                    mkvff_inspect_cancellable(path, &nativeInfo, handle.pointer, &errorMessage)
                 }
-            } else {
-                tracks = []
-            }
-            let title = Self.string(from: value.container_title)
-            return MediaInfo(
-                fileURL: url,
-                containerTitle: title.isEmpty ? nil : title,
-                durationSeconds: value.duration_seconds > 0 ? value.duration_seconds : nil,
-                subtitleTracks: tracks
-            )
-        }.value
+                defer {
+                    if let nativeInfo { mkvff_media_info_free(nativeInfo) }
+                    if let errorMessage { mkvff_string_free(errorMessage) }
+                }
+                if handle.isCancelled { throw CancellationError() }
+                guard status == 0, let nativeInfo else {
+                    let detail = errorMessage.map { String(cString: $0) } ?? "FFmpeg 无法读取该文件。"
+                    throw AppError.invalidMedia(detail)
+                }
+                let value = nativeInfo.pointee
+                let count = Int(value.subtitle_track_count)
+                let tracks: [SubtitleTrack]
+                if count > 0, let base = value.subtitle_tracks {
+                    tracks = (0..<count).map { index in
+                        let track = base.advanced(by: index).pointee
+                        let codec = Self.string(from: track.codec)
+                        let title = Self.string(from: track.title)
+                        return SubtitleTrack(
+                            streamIndex: Int(track.stream_index),
+                            codec: codec,
+                            language: Self.string(from: track.language),
+                            title: title,
+                            isDefault: track.is_default != 0,
+                            isForced: track.is_forced != 0,
+                            isSDH: track.is_hearing_impaired != 0 || SubtitleTrack.titleSuggestsSDH(title),
+                            isText: track.is_text != 0
+                        )
+                    }
+                } else {
+                    tracks = []
+                }
+                let title = Self.string(from: value.container_title)
+                return MediaInfo(
+                    fileURL: url,
+                    containerTitle: title.isEmpty ? nil : title,
+                    durationSeconds: value.duration_seconds > 0 ? value.duration_seconds : nil,
+                    subtitleTracks: tracks
+                )
+            }.value
+        } onCancel: {
+            handle.cancel()
+        }
     }
 
     func extract(
@@ -105,7 +122,7 @@ final class NativeMKVService: @unchecked Sendable {
                 }
                 defer { if let errorMessage { mkvff_string_free(errorMessage) } }
                 let detail = errorMessage.map { String(cString: $0) } ?? "字幕提取失败。"
-                if Task.isCancelled || detail.contains("任务已取消") {
+                if handle.isCancelled || Task.isCancelled || detail.contains("任务已取消") {
                     throw CancellationError()
                 }
                 guard status == 0 else {
@@ -152,7 +169,9 @@ final class NativeMKVService: @unchecked Sendable {
                 }
                 defer { if let errorMessage { mkvff_string_free(errorMessage) } }
                 let detail = errorMessage.map { String(cString: $0) } ?? "VobSub 解码失败。"
-                if Task.isCancelled || detail.contains("任务已取消") { throw CancellationError() }
+                if handle.isCancelled || Task.isCancelled || detail.contains("任务已取消") {
+                    throw CancellationError()
+                }
                 guard status == 0 else {
                     throw AppError.processFailed(tool: "内嵌 FFmpeg VobSub 解码器", code: status, message: detail)
                 }

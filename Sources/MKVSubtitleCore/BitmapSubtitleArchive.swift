@@ -56,7 +56,9 @@ public struct BitmapSubtitleArchive: Sendable {
                 endMilliseconds: end,
                 width: width,
                 height: height,
-                rgba: data.subdata(in: offset..<(offset + byteCount))
+                // Data slices retain the mapped archive storage without copying
+                // every RGBA cue into a second allocation.
+                rgba: data[offset..<(offset + byteCount)]
             ))
             offset += byteCount
         }

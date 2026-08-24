@@ -41,7 +41,7 @@ public final class MKVInspector: MKVInspecting, @unchecked Sendable {
                     title: title,
                     isDefault: stream.disposition?.defaultValue == 1,
                     isForced: stream.disposition?.forced == 1,
-                    isSDH: stream.disposition?.hearingImpaired == 1 || title.range(of: #"(?:\bSDH\b|\bhearing[ -]?impaired\b|\bCC\b)"#, options: [.regularExpression, .caseInsensitive]) != nil,
+                    isSDH: stream.disposition?.hearingImpaired == 1 || SubtitleTrack.titleSuggestsSDH(title),
                     isText: Self.supportedTextCodecs.contains(codec.lowercased())
                 )
             }

@@ -2,6 +2,13 @@ import XCTest
 @testable import MKVSubtitleCore
 
 final class MKVInspectorAndJobStoreTests: XCTestCase {
+    func testSDHTitleDetectionIsCaseInsensitiveWithoutFalseSubstringMatches() {
+        XCTAssertTrue(SubtitleTrack.titleSuggestsSDH("English SDH"))
+        XCTAssertTrue(SubtitleTrack.titleSuggestsSDH("Hearing-Impaired"))
+        XCTAssertTrue(SubtitleTrack.titleSuggestsSDH("English CC"))
+        XCTAssertFalse(SubtitleTrack.titleSuggestsSDH("Succession"))
+    }
+
     func testFFprobeJSONProducesDetailedSubtitleTracks() async throws {
         let json = """
         {

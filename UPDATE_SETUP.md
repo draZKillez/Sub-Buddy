@@ -1,6 +1,6 @@
 # GitHub 自动更新配置
 
-AI看剧伴侣使用 Sparkle 2.9.6。App 每天自动检查一次 GitHub Releases，也可从 App 菜单或首页独立的“软件更新”区域手动检查；更新包必须通过 EdDSA 签名才会安装。
+Sub Buddy（字幕搭档）使用 Sparkle 2.9.6。App 每天自动检查一次 GitHub Releases，也可从 App 菜单或首页独立的“软件更新”区域手动检查；更新包必须通过 EdDSA 签名才会安装。
 
 ## 首次配置
 

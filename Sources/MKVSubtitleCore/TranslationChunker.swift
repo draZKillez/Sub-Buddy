@@ -28,7 +28,9 @@ public struct TranslationChunker: Sendable {
 
     public func chunks(for cues: [SubtitleCue]) -> [TranslationChunk] {
         guard !cues.isEmpty else { return [] }
-        var ranges: [Range<Int>] = []
+        let estimatedCount = (cues.count - 1) / configuration.targetCoreCount + 1
+        var chunks: [TranslationChunk] = []
+        chunks.reserveCapacity(estimatedCount)
         var start = 0
         while start < cues.count {
             var end = start
@@ -41,19 +43,16 @@ public struct TranslationChunker: Sendable {
                 if end - start >= configuration.targetCoreCount { break }
             }
             if end == start { end += 1 }
-            ranges.append(start..<end)
+            let previousStart = max(0, start - configuration.contextCount)
+            let nextEnd = min(cues.count, end + configuration.contextCount)
+            chunks.append(TranslationChunk(
+                index: chunks.count,
+                core: Array(cues[start..<end]),
+                previousContext: Array(cues[previousStart..<start]),
+                nextContext: Array(cues[end..<nextEnd])
+            ))
             start = end
         }
-
-        return ranges.enumerated().map { index, range in
-            let previousStart = max(0, range.lowerBound - configuration.contextCount)
-            let nextEnd = min(cues.count, range.upperBound + configuration.contextCount)
-            return TranslationChunk(
-                index: index,
-                core: Array(cues[range]),
-                previousContext: Array(cues[previousStart..<range.lowerBound]),
-                nextContext: Array(cues[range.upperBound..<nextEnd])
-            )
-        }
+        return chunks
     }
 }

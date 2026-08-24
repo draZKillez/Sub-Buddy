@@ -12,6 +12,9 @@ public struct ManualTranslationChunk: Codable, Equatable, Sendable, Identifiable
 }
 
 public struct ManualSRTValidator: Sendable {
+    private static let timelineFormattingExpression = try? NSRegularExpression(
+        pattern: #"(?m)^\s*(\d{1,2})[:：](\d{2})[:：](\d{2})[,，\.．](\d{3})\s*(?:-->|->|→|⟶|—>|–>|−>)\s*(\d{1,2})[:：](\d{2})[:：](\d{2})[,，\.．](\d{3})\s*$"#
+    )
     private let parser = SubtitleParser()
 
     public init() {}
@@ -79,8 +82,7 @@ public struct ManualSRTValidator: Sendable {
     /// complete timestamp line; the parsed millisecond values are still compared
     /// with the source cues below, so an actual timing change remains an error.
     private func normalizeCommonTimelineFormatting(_ text: String) -> String {
-        let pattern = #"(?m)^\s*(\d{1,2})[:：](\d{2})[:：](\d{2})[,，\.．](\d{3})\s*(?:-->|->|→|⟶|—>|–>|−>)\s*(\d{1,2})[:：](\d{2})[:：](\d{2})[,，\.．](\d{3})\s*$"#
-        guard let expression = try? NSRegularExpression(pattern: pattern) else { return text }
+        guard let expression = Self.timelineFormattingExpression else { return text }
         let range = NSRange(text.startIndex..<text.endIndex, in: text)
         return expression.stringByReplacingMatches(
             in: text,
@@ -123,11 +125,19 @@ public struct ManualTranslationSession: Codable, Equatable, Sendable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         let document = try container.decode(SubtitleDocument.self, forKey: .sourceDocument)
         let ids = document.cues.map(\.id)
-        guard !ids.isEmpty, ids.allSatisfy({ $0 > 0 }), Set(ids).count == ids.count else {
+        guard document.format == .srt,
+              !ids.isEmpty,
+              ids.allSatisfy({ $0 > 0 }),
+              Set(ids).count == ids.count,
+              document.cues.allSatisfy({
+                  $0.startMilliseconds >= 0 &&
+                      $0.endMilliseconds >= $0.startMilliseconds &&
+                      !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+              }) else {
             throw DecodingError.dataCorruptedError(
                 forKey: .sourceDocument,
                 in: container,
-                debugDescription: "手动翻译进度为空，或包含无效/重复字幕 ID。"
+                debugDescription: "手动翻译进度为空，或包含无效字幕格式、ID、时间轴或正文。"
             )
         }
         sourceDocument = document
@@ -212,10 +222,9 @@ public struct ManualTranslationSession: Codable, Equatable, Sendable {
             throw AppError.manualSubtitleFormat("没有可校对的当前分段。")
         }
         let corrected = try validator.validate(srt, expectedCues: chunk.cues)
-        let correctedByID = Dictionary(uniqueKeysWithValues: corrected.map { ($0.id, $0.text) })
-        for index in sourceDocument.cues.indices {
-            let id = sourceDocument.cues[index].id
-            if let text = correctedByID[id] { sourceDocument.cues[index].text = text }
+        let start = currentChunkIndex * chunkSize
+        for offset in corrected.indices {
+            sourceDocument.cues[start + offset].text = corrected[offset].text
         }
         for cue in chunk.cues { translatedItems[cue.id] = nil }
         completedChunkIndexes.remove(chunk.index)
@@ -228,7 +237,11 @@ public struct ManualTranslationSession: Codable, Equatable, Sendable {
         let validated = try validator.validate(pastedText, expectedCues: chunk.cues)
         for cue in validated { translatedItems[cue.id] = cue.text }
         completedChunkIndexes.insert(chunk.index)
-        if let next = (0..<totalChunkCount).first(where: { !completedChunkIndexes.contains($0) }) {
+        let following = (chunk.index + 1)..<totalChunkCount
+        if let next = following.first(where: { !completedChunkIndexes.contains($0) }) {
+            currentChunkIndex = next
+        } else if chunk.index > 0,
+                  let next = (0..<chunk.index).first(where: { !completedChunkIndexes.contains($0) }) {
             currentChunkIndex = next
         }
     }
@@ -243,7 +256,10 @@ public struct ManualTranslationSession: Codable, Equatable, Sendable {
             throw AppError.manualSubtitleFormat("还有 \(max(0, totalChunkCount - completedChunkCount)) 份尚未完成。")
         }
         let composer = SubtitleOutputComposer()
-        let cues = try sourceDocument.cues.map { source -> SubtitleCue in
+        var cues: [SubtitleCue] = []
+        cues.reserveCapacity(sourceDocument.cues.count)
+        for (index, source) in sourceDocument.cues.enumerated() {
+            if index.isMultiple(of: 256) { try Task.checkCancellation() }
             guard let chinese = translatedItems[source.id] else {
                 throw AppError.manualSubtitleFormat("缺少字幕 ID \(source.id) 的译文。")
             }
@@ -254,7 +270,7 @@ public struct ManualTranslationSession: Codable, Equatable, Sendable {
                 format: .srt,
                 mode: outputMode
             )
-            return result
+            cues.append(result)
         }
         return SubtitleDocument(format: .srt, cues: cues)
     }

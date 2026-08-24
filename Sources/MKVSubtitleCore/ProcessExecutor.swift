@@ -182,17 +182,29 @@ private final class ProcessCancellationState: @unchecked Sendable {
 private final class LockedDataBuffer: @unchecked Sendable {
     private let lock = NSLock()
     private let maximumBytes: Int
+    private let trimmingThreshold: Int
     private var data = Data()
     private var discardedByteCount = 0
 
     init(maximumBytes: Int) {
-        self.maximumBytes = maximumBytes
+        self.maximumBytes = max(1, maximumBytes)
+        // Do not shift a multi-megabyte Data value for every small pipe read
+        // after the limit is reached. Keep a bounded amount of slack and trim
+        // in larger batches instead.
+        let slack = min(1 * 1_024 * 1_024, max(64 * 1_024, maximumBytes / 8))
+        self.trimmingThreshold = max(1, maximumBytes) + slack
     }
 
     func append(_ value: Data) {
+        guard !value.isEmpty else { return }
         lock.lock()
-        data.append(value)
-        if data.count > maximumBytes {
+        if value.count >= maximumBytes {
+            discardedByteCount += data.count + value.count - maximumBytes
+            data = Data(value.suffix(maximumBytes))
+        } else {
+            data.append(value)
+        }
+        if data.count > trimmingThreshold {
             let overflow = data.count - maximumBytes
             data.removeFirst(overflow)
             discardedByteCount += overflow
@@ -203,8 +215,11 @@ private final class LockedDataBuffer: @unchecked Sendable {
     func snapshot() -> Data {
         lock.lock()
         defer { lock.unlock() }
-        guard discardedByteCount > 0 else { return data }
-        let marker = "[前方输出因过长已省略 \(discardedByteCount) 字节]\n"
-        return Data(marker.utf8) + data
+        let inMemoryOverflow = max(0, data.count - maximumBytes)
+        let totalDiscarded = discardedByteCount + inMemoryOverflow
+        let tail = inMemoryOverflow > 0 ? Data(data.suffix(maximumBytes)) : data
+        guard totalDiscarded > 0 else { return tail }
+        let marker = "[前方输出因过长已省略 \(totalDiscarded) 字节]\n"
+        return Data(marker.utf8) + tail
     }
 }

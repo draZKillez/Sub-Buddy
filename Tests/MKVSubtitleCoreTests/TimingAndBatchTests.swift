@@ -66,4 +66,22 @@ final class TimingAndBatchTests: XCTestCase {
         let cleared = try await store.load()
         XCTAssertEqual(cleared, [])
     }
+
+    func testBatchQueueRejectsOutOfOrderPersistenceMutations() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("BatchRevision-\(UUID())", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = BatchQueueStore(fileURL: root.appendingPathComponent("queue.json"))
+        let newest = [BatchJob(inputPath: "/Movies/Newest.mkv")]
+        let stale = [BatchJob(inputPath: "/Movies/Stale.mkv")]
+
+        try await store.save(newest, revision: 2)
+        try await store.save(stale, revision: 1)
+        let loadedNewest = try await store.load()
+        XCTAssertEqual(loadedNewest, newest)
+
+        try await store.clear(revision: 4)
+        try await store.save(stale, revision: 3)
+        let loadedAfterClear = try await store.load()
+        XCTAssertEqual(loadedAfterClear, [])
+    }
 }

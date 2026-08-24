@@ -67,7 +67,8 @@ public actor JobStore {
         var updated = record
         updated.updatedAt = Date()
         let encoder = JSONEncoder()
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        // Progress can contain thousands of subtitle strings. Default compact,
+        // unsorted JSON avoids both pretty-print bytes and unnecessary key sorting.
         encoder.dateEncodingStrategy = .iso8601
         try encoder.encode(updated).write(to: recordURL(input: input, trackIndex: record.trackIndex), options: .atomic)
     }

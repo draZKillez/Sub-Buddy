@@ -161,8 +161,8 @@
 "DVB、XSUB 等其他图片字幕暂未支持 OCR。" = "OCR for DVB, XSUB, and other image subtitle formats is not supported yet.";
 "PGS 与 VobSub 可在设备上使用 Apple Vision OCR；图片不会上传。" = "PGS and VobSub can use Apple Vision OCR on this device; images are never uploaded.";
 "图片字幕 OCR 原文校对（建议先检查低置信度内容）" = "Review image-subtitle OCR source (check low-confidence items first)";
-"AI看剧伴侣" = "AI Viewing Companion";
-"AI Viewing Companion · 本地字幕生成与翻译" = "AI Viewing Companion · Local subtitle creation and translation";
+"字幕搭档" = "Sub Buddy";
+"Sub Buddy · 字幕提取、识别与翻译" = "Sub Buddy · Extract, recognize, and translate subtitles";
 "Base · 英文专用" = "Base · English-only";
 "Small · 英文专用（推荐）" = "Small · English-only (Recommended)";
 "Medium · 英文专用" = "Medium · English-only";
@@ -363,3 +363,5 @@
 "本地格式校验未通过，无需调用 AI：%@" = "Local format validation failed, so AI was not called: %@";
 "AI 发现格式问题：%@" = "AI found formatting issues: %@";
 "；" = "; ";
+"字幕提取已取消，可以重试。" = "Subtitle extraction was cancelled. You can try again.";
+"字幕生成已取消；已完成的手动分段仍然保留。" = "Subtitle generation was cancelled; completed manual segments are still saved.";

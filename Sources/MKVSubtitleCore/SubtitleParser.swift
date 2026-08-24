@@ -5,6 +5,11 @@ enum SubtitleInternalFormat {
 }
 
 public struct SubtitleParser: Sendable {
+    private static let blankLineExpression = try? NSRegularExpression(
+        pattern: #"\n[ \t]*\n"#,
+        options: .anchorsMatchLines
+    )
+
     public init() {}
 
     public func parse(data: Data, format: SubtitleFormat) throws -> SubtitleDocument {
@@ -14,8 +19,13 @@ public struct SubtitleParser: Sendable {
         // mkvextract commonly prefixes UTF-8 SRT files with a BOM. Swift keeps
         // it as U+FEFF, which would otherwise turn the first cue ID into
         // "\u{FEFF}1" and make the parser silently skip the entire first cue.
-        while text.unicodeScalars.first?.value == 0xFEFF {
-            text.removeFirst()
+        if text.unicodeScalars.first?.value == 0xFEFF {
+            let scalars = text.unicodeScalars
+            if let firstContent = scalars.firstIndex(where: { $0.value != 0xFEFF }) {
+                text = String(scalars[firstContent...])
+            } else {
+                text = ""
+            }
         }
         text = text.replacingOccurrences(of: "\r\n", with: "\n").replacingOccurrences(of: "\r", with: "\n")
         switch format {
@@ -26,15 +36,16 @@ public struct SubtitleParser: Sendable {
     }
 
     public func parse(contentsOf url: URL, format: SubtitleFormat) throws -> SubtitleDocument {
-        try parse(data: Data(contentsOf: url), format: format)
+        try parse(data: Data(contentsOf: url, options: [.mappedIfSafe]), format: format)
     }
 
     private func parseSRT(_ text: String) throws -> SubtitleDocument {
-        let normalizedBlankLines = text.replacingOccurrences(
-            of: #"(?m)\n[ \t]*\n"#,
-            with: "\n\n",
-            options: .regularExpression
-        )
+        let fullRange = NSRange(text.startIndex..., in: text)
+        let normalizedBlankLines = Self.blankLineExpression?.stringByReplacingMatches(
+            in: text,
+            range: fullRange,
+            withTemplate: "\n\n"
+        ) ?? text
         let normalized = normalizedBlankLines.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalized.isEmpty else {
             throw AppError.parsingFailed("字幕文件为空，没有找到 SRT 时间轴。")
@@ -43,8 +54,8 @@ public struct SubtitleParser: Sendable {
         var cues: [SubtitleCue] = []
         var seenIDs = Set<Int>()
         for (blockIndex, block) in blocks.enumerated() {
-            var lines = block.components(separatedBy: "\n")
-            while lines.first?.trimmingCharacters(in: .whitespaces).isEmpty == true { lines.removeFirst() }
+            if blockIndex.isMultiple(of: 256) { try Task.checkCancellation() }
+            let lines = block.components(separatedBy: "\n")
             guard lines.count >= 3,
                   let declaredID = Int(lines[0].trimmingCharacters(in: .whitespacesAndNewlines)),
                   declaredID > 0 else {
@@ -79,7 +90,8 @@ public struct SubtitleParser: Sendable {
         var cues: [SubtitleCue] = []
         var insertedDialoguesMarker = false
 
-        for line in lines {
+        for (lineIndex, line) in lines.enumerated() {
+            if lineIndex.isMultiple(of: 512) { try Task.checkCancellation() }
             let trimmed = line.trimmingCharacters(in: .whitespaces)
             if trimmed.caseInsensitiveCompare("[Events]") == .orderedSame {
                 inEvents = true
@@ -151,6 +163,7 @@ public struct SubtitleParser: Sendable {
         let body = lines.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
         var cues: [SubtitleCue] = []
         for (blockIndex, block) in body.components(separatedBy: "\n\n").enumerated() {
+            if blockIndex.isMultiple(of: 256) { try Task.checkCancellation() }
             let blockLines = block.components(separatedBy: "\n")
             let firstMeaningful = blockLines.first?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             if firstMeaningful.isEmpty || firstMeaningful == "STYLE" || firstMeaningful == "REGION" || firstMeaningful.hasPrefix("NOTE") {
