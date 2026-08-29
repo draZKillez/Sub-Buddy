@@ -177,6 +177,34 @@ final class ChunkerValidatorTests: XCTestCase {
             Array(1...500), Array(1...250), Array(251...500)
         ])
     }
+
+    func testSparseFirstResponseIsRecoveredInBoundedBatches() async throws {
+        let provider = SparseThenCompleteProvider()
+        let chunk = TranslationChunk(index: 0, core: cues(500), previousContext: [], nextContext: [])
+        let result = try await TranslationEngine(provider: provider).translate(
+            chunk: chunk,
+            movie: MovieInfo(originalTitle: "Demo"),
+            glossary: []
+        )
+        XCTAssertEqual(result.items.map(\.id), Array(1...500))
+        let requestedIDs = await provider.requestedIDs()
+        XCTAssertEqual(requestedIDs.map(\.count), [500, 250, 249])
+        XCTAssertEqual(requestedIDs[1], Array(2...251))
+        XCTAssertEqual(requestedIDs[2], Array(252...500))
+    }
+
+    func testPartialRecoveryResponseRetriesOnlyItsRemainingIDs() async throws {
+        let provider = TwicePartialProvider()
+        let chunk = TranslationChunk(index: 0, core: cues(20), previousContext: [], nextContext: [])
+        let result = try await TranslationEngine(provider: provider).translate(
+            chunk: chunk,
+            movie: MovieInfo(originalTitle: "Demo"),
+            glossary: []
+        )
+        XCTAssertEqual(result.items.map(\.id), Array(1...20))
+        let requestedIDs = await provider.requestedIDs()
+        XCTAssertEqual(requestedIDs, [Array(1...20), Array(11...20), Array(19...20)])
+    }
 }
 
 private actor MissingTailProvider: TranslationProvider {
@@ -201,6 +229,39 @@ private actor TruncatedLargeProvider: TranslationProvider {
         requests.append(ids)
         if requests.count == 1 { return #"{"items":[{"id":1,"text":"未结束"}"# }
         let response = TranslationResponse(items: ids.map { TranslationItem(id: $0, text: "译文 \($0)") })
+        return String(decoding: try JSONEncoder().encode(response), as: UTF8.self)
+    }
+
+    func requestedIDs() -> [[Int]] { requests }
+}
+
+private actor SparseThenCompleteProvider: TranslationProvider {
+    private var requests: [[Int]] = []
+
+    func translate(_ request: TranslationRequest) async throws -> String {
+        let ids = request.chunk.core.map(\.id)
+        requests.append(ids)
+        let outputIDs = requests.count == 1 ? Array(ids.prefix(1)) : ids
+        let response = TranslationResponse(items: outputIDs.map { TranslationItem(id: $0, text: "译文 \($0)") })
+        return String(decoding: try JSONEncoder().encode(response), as: UTF8.self)
+    }
+
+    func requestedIDs() -> [[Int]] { requests }
+}
+
+private actor TwicePartialProvider: TranslationProvider {
+    private var requests: [[Int]] = []
+
+    func translate(_ request: TranslationRequest) async throws -> String {
+        let ids = request.chunk.core.map(\.id)
+        requests.append(ids)
+        let outputIDs: [Int]
+        switch requests.count {
+        case 1: outputIDs = Array(ids.prefix(10))
+        case 2: outputIDs = Array(ids.prefix(8))
+        default: outputIDs = ids
+        }
+        let response = TranslationResponse(items: outputIDs.map { TranslationItem(id: $0, text: "译文 \($0)") })
         return String(decoding: try JSONEncoder().encode(response), as: UTF8.self)
     }
 

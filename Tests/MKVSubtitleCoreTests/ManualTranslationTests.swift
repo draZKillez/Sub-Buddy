@@ -64,6 +64,25 @@ final class ManualTranslationTests: XCTestCase {
         XCTAssertThrowsError(try ManualSRTValidator().validate(actuallyChangedTime, expectedCues: expected))
     }
 
+    func testManualValidatorRepairsMissingBlankLinesAndInvisibleIDCharacters() throws {
+        let expected = Array(document(3).cues)
+        let translated = """
+        \u{FEFF}1
+        00:00:01,000 --> 00:00:01,800
+        第一条
+        2
+        00:00:02,000 --> 00:00:02,800
+        第二条
+        \u{200B}3\u{2060}
+        00:00:03,000 --> 00:00:03,800
+        第三条
+        """
+
+        let result = try ManualSRTValidator().validate(translated, expectedCues: expected)
+        XCTAssertEqual(result.map(\.id), [1, 2, 3])
+        XCTAssertEqual(result.map(\.text), ["第一条", "第二条", "第三条"])
+    }
+
     func testManualValidatorRejectsMissingLaterIDAndTrailingExplanationBlock() {
         let expected = Array(document(2).cues)
         let missingSecondID = """

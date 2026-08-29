@@ -23,7 +23,15 @@ public struct ManualSRTValidator: Sendable {
         guard !expectedCues.isEmpty else {
             throw AppError.manualSubtitleFormat("当前分段没有字幕。")
         }
-        let cleaned = normalizeCommonTimelineFormatting(stripCodeFence(pastedText))
+        // Chat tools frequently remove the visually insignificant blank line
+        // between SRT blocks. Recover separators only when an expected cue ID
+        // is immediately followed by a complete timeline. This is structural
+        // normalization: IDs and parsed millisecond values are still checked
+        // against the source below, so damaged or missing cues are not hidden.
+        let cleaned = normalizeCueStructure(
+            normalizeCommonTimelineFormatting(stripCodeFence(pastedText)),
+            expectedCues: expectedCues
+        )
         guard !cleaned.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             throw AppError.manualSubtitleFormat("粘贴内容为空。")
         }
@@ -89,6 +97,54 @@ public struct ManualSRTValidator: Sendable {
             range: range,
             withTemplate: "$1:$2:$3,$4 --> $5:$6:$7,$8"
         )
+    }
+
+    private func normalizeCueStructure(_ text: String, expectedCues: [SubtitleCue]) -> String {
+        let normalizedLines = text
+            .replacingOccurrences(of: "\r\n", with: "\n")
+            .replacingOccurrences(of: "\r", with: "\n")
+            .replacingOccurrences(of: "\u{2028}", with: "\n")
+            .replacingOccurrences(of: "\u{2029}", with: "\n")
+        var lines = normalizedLines.components(separatedBy: "\n")
+        let expectedIDs = Set(expectedCues.map(\.id))
+
+        // Normalize invisible characters around an ID only when the following
+        // line proves that this is a cue header, rather than dialogue containing
+        // a number on its own line.
+        for index in lines.indices where index + 1 < lines.count {
+            guard isCanonicalTimeline(lines[index + 1]),
+                  let id = cueID(from: lines[index]),
+                  expectedIDs.contains(id) else { continue }
+            lines[index] = String(id)
+        }
+
+        var result: [String] = []
+        result.reserveCapacity(lines.count + expectedCues.count)
+        for index in lines.indices {
+            if index + 1 < lines.count,
+               isCanonicalTimeline(lines[index + 1]),
+               let id = Int(lines[index].trimmingCharacters(in: .whitespacesAndNewlines)),
+               expectedIDs.contains(id),
+               result.last?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false {
+                result.append("")
+            }
+            result.append(lines[index])
+        }
+        return result.joined(separator: "\n")
+    }
+
+    private func cueID(from line: String) -> Int? {
+        var value = line.trimmingCharacters(in: .whitespacesAndNewlines)
+        value.removeAll(where: { character in
+            character == "\u{FEFF}" || character == "\u{200B}" || character == "\u{2060}"
+        })
+        return Int(value.trimmingCharacters(in: .whitespacesAndNewlines))
+    }
+
+    private func isCanonicalTimeline(_ line: String) -> Bool {
+        guard let expression = Self.timelineFormattingExpression else { return false }
+        let range = NSRange(line.startIndex..<line.endIndex, in: line)
+        return expression.firstMatch(in: line, range: range)?.range == range
     }
 }
 

@@ -143,19 +143,20 @@ public struct TranslationEngine: Sendable {
                 let missingCues = chunk.core.filter { !returnedIDs.contains($0.id) }
                 if !partial.items.isEmpty, !missingCues.isEmpty {
                     let missingChunk = recoveryChunk(for: missingCues, in: chunk)
-                    let missingRaw = try await provider.translate(TranslationRequest(
-                        chunk: missingChunk,
-                        movie: movie,
-                        glossary: glossary + partial.glossaryUpdates,
-                        sourceLanguage: sourceLanguage,
-                        targetLanguage: targetLanguage
-                    ))
-                    let recovered = try validator.validate(
-                        rawJSON: missingRaw,
-                        expectedIDs: missingCues.map(\.id)
-                    )
+                    let recoveryChunks = splitForRecovery(missingChunk)
+                    var recovered: [TranslationResponse] = []
+                    for recoveryChunk in recoveryChunks {
+                        try Task.checkCancellation()
+                        recovered.append(try await recover(
+                            chunk: recoveryChunk,
+                            movie: movie,
+                            glossary: glossary + partial.glossaryUpdates + recovered.flatMap(\.glossaryUpdates),
+                            sourceLanguage: sourceLanguage,
+                            targetLanguage: targetLanguage
+                        ))
+                    }
                     return try merged(
-                        responses: [partial, recovered],
+                        responses: [partial] + recovered,
                         expectedIDs: chunk.core.map(\.id)
                     )
                 }
@@ -168,22 +169,78 @@ public struct TranslationEngine: Sendable {
             var responses: [TranslationResponse] = []
             for recoveryChunk in recoveryChunks {
                 try Task.checkCancellation()
-                let request = TranslationRequest(
+                responses.append(try await recover(
                     chunk: recoveryChunk,
                     movie: movie,
                     glossary: glossary + responses.flatMap(\.glossaryUpdates),
-                    previousInvalidOutput: recoveryChunks.count == 1 ? first : nil,
                     sourceLanguage: sourceLanguage,
-                    targetLanguage: targetLanguage
-                )
-                let raw = try await provider.translate(request)
-                responses.append(try validator.validate(
-                    rawJSON: raw,
-                    expectedIDs: recoveryChunk.core.map(\.id)
+                    targetLanguage: targetLanguage,
+                    previousInvalidOutput: recoveryChunks.count == 1 ? first : nil
                 ))
             }
             return try merged(responses: responses, expectedIDs: chunk.core.map(\.id))
         }
+    }
+
+    /// Completes one bounded recovery batch. A partially valid response is
+    /// retained and only its missing IDs are submitted once more. This avoids
+    /// repeatedly retranslating hundreds of successful cues while guaranteeing
+    /// that recovery is finite rather than an unbounded retry loop.
+    private func recover(
+        chunk: TranslationChunk,
+        movie: MovieInfo,
+        glossary: [GlossaryEntry],
+        sourceLanguage: SubtitleLanguage,
+        targetLanguage: SubtitleLanguage,
+        previousInvalidOutput: String? = nil
+    ) async throws -> TranslationResponse {
+        let raw = try await provider.translate(TranslationRequest(
+            chunk: chunk,
+            movie: movie,
+            glossary: glossary,
+            previousInvalidOutput: previousInvalidOutput,
+            sourceLanguage: sourceLanguage,
+            targetLanguage: targetLanguage
+        ))
+        let expectedIDs = chunk.core.map(\.id)
+        if let complete = try? validator.validate(rawJSON: raw, expectedIDs: expectedIDs) {
+            return complete
+        }
+
+        if let partial = try? validator.validatePartial(rawJSON: raw, expectedIDs: expectedIDs),
+           !partial.items.isEmpty {
+            let returnedIDs = Set(partial.items.map(\.id))
+            let missingCues = chunk.core.filter { !returnedIDs.contains($0.id) }
+            guard !missingCues.isEmpty else {
+                return try validator.validate(response: partial, expectedIDs: expectedIDs)
+            }
+            let missingChunk = recoveryChunk(for: missingCues, in: chunk)
+            let repairedRaw = try await provider.translate(TranslationRequest(
+                chunk: missingChunk,
+                movie: movie,
+                glossary: glossary + partial.glossaryUpdates,
+                previousInvalidOutput: raw,
+                sourceLanguage: sourceLanguage,
+                targetLanguage: targetLanguage
+            ))
+            let repaired = try validator.validate(
+                rawJSON: repairedRaw,
+                expectedIDs: missingCues.map(\.id)
+            )
+            return try merged(responses: [partial, repaired], expectedIDs: expectedIDs)
+        }
+
+        // The batch contained no safely reusable items (for example truncated
+        // JSON). Make exactly one format-repair request for this bounded batch.
+        let repairedRaw = try await provider.translate(TranslationRequest(
+            chunk: chunk,
+            movie: movie,
+            glossary: glossary,
+            previousInvalidOutput: raw,
+            sourceLanguage: sourceLanguage,
+            targetLanguage: targetLanguage
+        ))
+        return try validator.validate(rawJSON: repairedRaw, expectedIDs: expectedIDs)
     }
 
     private func recoveryChunk(for cues: [SubtitleCue], in original: TranslationChunk) -> TranslationChunk {
