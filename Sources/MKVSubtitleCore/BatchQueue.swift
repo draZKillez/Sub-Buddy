@@ -73,7 +73,9 @@ public struct MKVFolderScanner: @unchecked Sendable {
     }
 
     public func scan(_ folder: URL) throws -> [URL] {
+        try Task.checkCancellation()
         let keys: [URLResourceKey] = [.isRegularFileKey, .isHiddenKey]
+        let keySet = Set(keys)
         guard let enumerator = fileManager.enumerator(
             at: folder,
             includingPropertiesForKeys: keys,
@@ -82,8 +84,9 @@ public struct MKVFolderScanner: @unchecked Sendable {
 
         var urls: [URL] = []
         for case let url as URL in enumerator {
+            try Task.checkCancellation()
             guard url.pathExtension.caseInsensitiveCompare("mkv") == .orderedSame else { continue }
-            let values = try? url.resourceValues(forKeys: Set(keys))
+            let values = try? url.resourceValues(forKeys: keySet)
             guard values?.isRegularFile == true, values?.isHidden != true else { continue }
             urls.append(url)
         }

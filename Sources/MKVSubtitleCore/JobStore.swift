@@ -1,4 +1,14 @@
 import Foundation
+import CryptoKit
+
+enum SubtitleSourceIdentity {
+    static func fingerprint(_ document: SubtitleDocument) throws -> String {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = .sortedKeys
+        let data = try encoder.encode(document)
+        return SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+    }
+}
 
 public struct TranslationJobRecord: Codable, Equatable, Sendable {
     public let inputPath: String

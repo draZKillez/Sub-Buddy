@@ -233,7 +233,10 @@ public struct SubtitleParser: Sendable {
             let padded = String((fractionString + "000").prefix(3))
             fraction = Int64(padded) ?? 0
         }
-        return ((hours * 3_600 + minutes * 60 + seconds) * 1_000) + fraction
+        let base = hours * 3_600_000
+        let remainder = (minutes * 60 + seconds) * 1_000 + fraction
+        let (result, overflow) = base.addingReportingOverflow(remainder)
+        return overflow ? nil : result
     }
 
     /// ASS has no quoting syntax. The Text field can contain commas, so split

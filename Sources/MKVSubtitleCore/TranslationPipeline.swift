@@ -196,7 +196,8 @@ public final class TranslationPipeline: @unchecked Sendable {
             let chunks = chunker.chunks(for: document.cues)
 
             let translationContext = [
-                "prompt-schema-v2",
+                "source-aligned-v3",
+                try SubtitleSourceIdentity.fingerprint(document),
                 movie.originalTitle,
                 movie.chineseTitle,
                 movie.year.map(String.init) ?? "",
@@ -218,9 +219,12 @@ public final class TranslationPipeline: @unchecked Sendable {
                 record.translationContext != translationContext {
                 record = freshRecord
             }
+            let sourceIDs = Set(document.cues.map(\.id))
+            record.translatedItems = record.translatedItems.filter {
+                sourceIDs.contains($0.key) && !$0.value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            }
             record.completedChunkIndexes = Set(chunks.compactMap { chunk in
-                guard record.completedChunkIndexes.contains(chunk.index),
-                      chunk.core.allSatisfy({ record.translatedItems[$0.id] != nil }) else { return nil }
+                guard chunk.core.allSatisfy({ record.translatedItems[$0.id] != nil }) else { return nil }
                 return chunk.index
             })
             try await jobStore.save(record, input: input)
@@ -259,14 +263,31 @@ public final class TranslationPipeline: @unchecked Sendable {
                     completedItems: completedItemCount,
                     totalItems: document.cues.count,
                     totalChunks: chunks.count,
-                    detailPrefix: "本块 \(chunk.core.count) 条正一次性提交给 \(provider.progressLabel)"
+                    detailPrefix: "本块剩余 \(chunk.core.filter { record.translatedItems[$0.id] == nil }.count) 条正提交给 \(provider.progressLabel)"
                 ))
-                let response = try await engine.translate(
+                _ = try await engine.translate(
                     chunk: chunk,
                     movie: movie,
                     glossary: record.glossary,
                     sourceLanguage: sourceLanguage,
-                    targetLanguage: targetLanguage
+                    targetLanguage: targetLanguage,
+                    completedItems: record.translatedItems,
+                    onValidated: { partial in
+                        for item in partial.items {
+                            if record.translatedItems[item.id] == nil { completedItemCount += 1 }
+                            record.translatedItems[item.id] = item.text
+                        }
+                        record.glossary = TranslationGlossary.merge(record.glossary, partial.glossaryUpdates)
+                        if chunk.core.allSatisfy({ record.translatedItems[$0.id] != nil }) {
+                            record.completedChunkIndexes.insert(chunk.index)
+                        }
+                        try await self.jobStore.save(record, input: input)
+                        progress(self.translationProgress(
+                            chunk: chunk, record: record, completedItems: completedItemCount,
+                            totalItems: document.cues.count, totalChunks: chunks.count,
+                            detailPrefix: "已保存通过校验的字幕"
+                        ))
+                    }
                 ) {
                     progress(self.translationProgress(
                         chunk: chunk,
@@ -274,16 +295,9 @@ public final class TranslationPipeline: @unchecked Sendable {
                         completedItems: completedItemCount,
                         totalItems: document.cues.count,
                         totalChunks: chunks.count,
-                        detailPrefix: "正在补齐缺失 ID；若 JSON 被截断将自动分批恢复"
+                        detailPrefix: "正在分批修复缺失或原文对应错误的字幕；已保存有效条目"
                     ))
                 }
-                for item in response.items {
-                    if record.translatedItems[item.id] == nil { completedItemCount += 1 }
-                    record.translatedItems[item.id] = item.text
-                }
-                record.glossary = mergeGlossary(record.glossary, response.glossaryUpdates)
-                record.completedChunkIndexes.insert(chunk.index)
-                try await jobStore.save(record, input: input)
                 progress(translationProgress(
                     chunk: chunk,
                     record: record,
@@ -387,22 +401,6 @@ public final class TranslationPipeline: @unchecked Sendable {
         } catch is CancellationError {
             throw AppError.cancelled
         }
-    }
-
-    private func mergeGlossary(_ existing: [GlossaryEntry], _ updates: [GlossaryEntry]) -> [GlossaryEntry] {
-        var result = Array(existing.suffix(500))
-        for update in updates where !update.source.isEmpty && !update.target.isEmpty {
-            let bounded = GlossaryEntry(
-                source: String(update.source.prefix(200)),
-                target: String(update.target.prefix(200))
-            )
-            if let index = result.firstIndex(where: { $0.source.caseInsensitiveCompare(bounded.source) == .orderedSame }) {
-                result[index] = bounded
-            } else {
-                result.append(bounded)
-            }
-        }
-        return Array(result.suffix(500))
     }
 
     private func translationProgress(

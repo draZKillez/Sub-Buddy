@@ -2,6 +2,16 @@ import XCTest
 @testable import MKVSubtitleCore
 
 final class TimingAndBatchTests: XCTestCase {
+    func testFolderScanHonorsCancellationBeforeEnumeration() async {
+        let task = Task {
+            withUnsafeCurrentTask { $0?.cancel() }
+            return try MKVFolderScanner().scan(FileManager.default.temporaryDirectory)
+        }
+        do {
+            _ = try await task.value
+            XCTFail("A cancelled scan must stop")
+        } catch { XCTAssertTrue(error is CancellationError) }
+    }
     func testTranslationETAUsesCompletedChunksAndReturnsRange() {
         let start = Date(timeIntervalSince1970: 1_000)
         var estimator = JobTimingEstimator()

@@ -27,6 +27,9 @@ jobs:
       - name: Prepare pinned binary dependencies
         run: zsh scripts/setup_dependencies.sh
 
+      - name: Run unit tests
+        run: swift test --disable-sandbox
+
       - name: Validate release inputs and signing secret
         env:
           APP_VERSION: ${{ inputs.version }}
@@ -74,9 +77,15 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           APP_VERSION: ${{ inputs.version }}
         run: |
+          NOTES_FILE="docs/releases/$APP_VERSION.md"
+          if [[ -f "$NOTES_FILE" ]]; then
+            NOTES_ARGS=(--notes-file "$NOTES_FILE")
+          else
+            NOTES_ARGS=(--generate-notes)
+          fi
           gh release create "v$APP_VERSION" \
             "outputs/release-$APP_VERSION/Sub-Buddy-$APP_VERSION.dmg" \
             "outputs/release-$APP_VERSION/appcast.xml" \
             --repo "$GITHUB_REPOSITORY" \
             --title "Sub Buddy $APP_VERSION" \
-            --generate-notes
+            "${NOTES_ARGS[@]}"

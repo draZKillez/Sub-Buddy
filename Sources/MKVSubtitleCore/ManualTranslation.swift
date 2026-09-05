@@ -252,6 +252,7 @@ public struct ManualTranslationSession: Codable, Equatable, Sendable {
         2. 不得遗漏、增加、合并或拆分字幕条目。
         3. 保留正文中的换行、HTML 标签、声音描述、歌词及括号内容。
         4. 只输出完整 SRT，不要 Markdown 代码围栏、解释、前言或尾注。
+        5. 每条字幕有独立播放时间，正文只能翻译该序号的原文。即使一句话跨两条，也不能合并到前一条，再把后续对白提前填入下一条；允许保留片段句。
 
         \(srt)
         """

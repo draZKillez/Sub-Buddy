@@ -2,6 +2,10 @@ import XCTest
 @testable import MKVSubtitleCore
 
 final class SubtitleParserWriterTests: XCTestCase {
+    func testSRTRejectsOverflowingClockInsteadOfCrashing() {
+        let text = "1\n2562047788015:59:59,999 --> 2562047788015:59:59,999\nText\n"
+        XCTAssertThrowsError(try SubtitleParser().parse(data: Data(text.utf8), format: .srt))
+    }
     func testSRTWriterCanRefuseToOverwriteAFileCreatedAfterPreflight() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("SubtitleWriter-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: root) }

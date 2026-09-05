@@ -113,10 +113,9 @@ private final class WhisperCancellationBox: @unchecked Sendable {
 
     func set(_ context: OpaquePointer) {
         lock.lock()
+        defer { lock.unlock() }
         self.context = context
-        let shouldCancel = cancellationRequested
-        lock.unlock()
-        if shouldCancel { avc_whisper_cancel(context) }
+        if cancellationRequested { avc_whisper_cancel(context) }
     }
 
     func clear() {
@@ -125,10 +124,11 @@ private final class WhisperCancellationBox: @unchecked Sendable {
 
     func cancel() {
         lock.lock()
+        defer { lock.unlock() }
         cancellationRequested = true
-        let value = context
-        lock.unlock()
-        if let value { avc_whisper_cancel(value) }
+        // Keep the pointer protected through the C call: clear()/destroy()
+        // on the worker may otherwise free it between unlock and cancel.
+        if let context { avc_whisper_cancel(context) }
     }
 
     var isCancelled: Bool {

@@ -3,6 +3,52 @@ import Foundation
 public struct TranslationValidator: Sendable {
     public init() {}
 
+    /// Decode once, retain only unambiguous source-bound items for recovery.
+    /// Comparing IDs alone cannot detect a model moving a sentence to a neighbor.
+    public func alignedPartial(
+        rawJSON: String,
+        expectedCues: [SubtitleCue],
+        requiresSourceEcho: Bool
+    ) throws -> TranslationResponse {
+        let data = Data(rawJSON.utf8)
+        try validateStrictShape(data)
+        let response: TranslationResponse
+        do {
+            response = try JSONDecoder().decode(TranslationResponse.self, from: data)
+        } catch {
+            throw AppError.invalidTranslation("无法解析严格 JSON（\(error.localizedDescription)）。")
+        }
+        let sources = Dictionary(expectedCues.map { ($0.id, $0.text) }, uniquingKeysWith: { first, _ in first })
+        var counts: [Int: Int] = [:]
+        for item in response.items { counts[item.id, default: 0] += 1 }
+        let extra = Set(counts.keys).subtracting(sources.keys).sorted()
+        guard extra.isEmpty else {
+            throw AppError.invalidTranslation("出现非核心块 ID：\(extra.map(String.init).joined(separator: ", "))。")
+        }
+        let items = response.items.compactMap { item -> TranslationItem? in
+            guard counts[item.id] == 1, let source = sources[item.id],
+                  !item.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+            if requiresSourceEcho || item.source != nil {
+                guard item.source == source else { return nil }
+            }
+            return TranslationItem(
+                id: item.id,
+                text: Self.normalizeLineBreaks(item.text, source: source),
+                source: item.source
+            )
+        }
+        return TranslationResponse(items: items, glossaryUpdates: response.glossaryUpdates)
+    }
+
+    /// Only repair double-escaped line breaks when the source really has line
+    /// breaks and no literal \\n of its own (paths/code must stay intact).
+    static func normalizeLineBreaks(_ text: String, source: String) -> String {
+        guard source.contains("\n"), !source.contains(#"\n"#), !source.contains(#"\r"#),
+              !text.contains("\n") else { return text }
+        return text.replacingOccurrences(of: #"\r\n"#, with: "\n")
+            .replacingOccurrences(of: #"\n"#, with: "\n")
+    }
+
     public func validate(rawJSON: String, expectedIDs: [Int]) throws -> TranslationResponse {
         let response = try validatePartial(rawJSON: rawJSON, expectedIDs: expectedIDs)
         return try validate(response: response, expectedIDs: expectedIDs)
@@ -79,8 +125,9 @@ public struct TranslationValidator: Sendable {
             throw AppError.invalidTranslation("JSON 缺少 items 数组。")
         }
         for item in (root["items"] as? [[String: Any]]) ?? [] {
-            guard Set(item.keys) == ["id", "text"] else {
-                throw AppError.invalidTranslation("items 中每项只能包含 id 和 text。")
+            let keys = Set(item.keys)
+            guard keys == ["id", "text"] || keys == ["id", "source", "text"] else {
+                throw AppError.invalidTranslation("items 中每项只能包含 id、source 和 text。")
             }
         }
         if let glossary = root["glossary_updates"] {

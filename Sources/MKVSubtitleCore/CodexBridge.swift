@@ -179,6 +179,7 @@ public struct CodexTranslationProvider: TranslationProvider {
     }
 
     public var progressLabel: String { "Codex · \(bridge.model)" }
+    public var requiresSourceEcho: Bool { true }
 
     public func translate(_ request: TranslationRequest) async throws -> String {
         try Task.checkCancellation()

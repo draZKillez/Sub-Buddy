@@ -80,8 +80,13 @@ final class CodexBridgeTests: XCTestCase {
 
         XCTAssertEqual(executor.invocationCount, 1)
         let prompt = String(decoding: try XCTUnwrap(executor.lastInput), as: UTF8.self)
-        XCTAssertTrue(prompt.contains("[1] Line 1"))
-        XCTAssertTrue(prompt.contains("[500] Line 500"))
+        let records = prompt.split(separator: "\n").compactMap { line in
+            try? JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any]
+        }
+        XCTAssertEqual(records.count, 500)
+        XCTAssertEqual(records.first?["id"] as? Int, 1)
+        XCTAssertEqual(records.last?["source"] as? String, "Line 500")
+        XCTAssertTrue(CodexTranslationProvider(bridge: bridge).requiresSourceEcho)
     }
 }
 

@@ -402,10 +402,14 @@ public struct GlossaryEntry: Codable, Equatable, Sendable {
 public struct TranslationItem: Codable, Equatable, Sendable {
     public let id: Int
     public let text: String
+    /// Echoed by generative providers to bind each translation to its source.
+    /// Optional for older saved data and providers using native client IDs.
+    public let source: String?
 
-    public init(id: Int, text: String) {
+    public init(id: Int, text: String, source: String? = nil) {
         self.id = id
         self.text = text
+        self.source = source
     }
 }
 

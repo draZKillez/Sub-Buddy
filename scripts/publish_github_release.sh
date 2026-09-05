@@ -2,8 +2,8 @@
 set -euo pipefail
 
 PROJECT_DIR="${0:A:h:h}"
-VERSION="${APP_VERSION:-0.8.3}"
-BUILD_NUMBER="${APP_BUILD_NUMBER:-22}"
+VERSION="${APP_VERSION:-0.8.4}"
+BUILD_NUMBER="${APP_BUILD_NUMBER:-23}"
 REPOSITORY="${GITHUB_REPOSITORY:-}"
 TAG="${RELEASE_TAG:-v$VERSION}"
 SPARKLE_ACCOUNT="${SPARKLE_KEY_ACCOUNT:-com.mkvsubtitletranslator.mac}"
@@ -33,12 +33,18 @@ mkdir -p "$RELEASE_DIR"
   --maximum-versions 1 \
   "$RELEASE_DIR"
 
+NOTES_FILE="$PROJECT_DIR/docs/releases/$VERSION.md"
+if [[ -f "$NOTES_FILE" ]]; then
+  NOTES_ARGS=(--notes-file "$NOTES_FILE")
+else
+  NOTES_ARGS=(--generate-notes)
+fi
 gh release create "$TAG" \
   "$RELEASE_DMG" \
   "$RELEASE_DIR/appcast.xml" \
   --repo "$REPOSITORY" \
   --title "Sub Buddy $VERSION" \
-  --generate-notes
+  "${NOTES_ARGS[@]}"
 
 print "发布完成：https://github.com/$REPOSITORY/releases/tag/$TAG"
 print "旧版本会从 releases/latest/download/appcast.xml 自动检查本次更新。"

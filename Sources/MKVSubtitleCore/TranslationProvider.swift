@@ -27,11 +27,13 @@ public struct TranslationRequest: Equatable, Sendable {
 
 public protocol TranslationProvider: Sendable {
     var progressLabel: String { get }
+    var requiresSourceEcho: Bool { get }
     func translate(_ request: TranslationRequest) async throws -> String
 }
 
 public extension TranslationProvider {
     var progressLabel: String { "翻译服务" }
+    var requiresSourceEcho: Bool { false }
 }
 
 public struct TranslationPromptBuilder: Sendable {
@@ -50,13 +52,16 @@ public struct TranslationPromptBuilder: Sendable {
 
         硬性规则：
         1. 只翻译 CORE 中的字幕；BEFORE 和 AFTER 仅供理解，绝不能输出。
-        2. 每个输入 ID 必须对应且只对应一个输出 ID；保持 ID 不变，不输出时间轴。
+        2. 每个输入 ID 必须对应且只对应一个输出 ID；保持 ID 不变，不输出时间轴。逐条输出 id、原样复制的 source、仅对应这条 source 的 text。
         3. 只输出一个严格 JSON 对象，不要 Markdown、代码围栏、解释、前言或尾注。
         4. 保持人物称呼、语气、粗口、幽默和上下文一致，并根据电影类型调整表达。
         5. 保留原字幕换行、斜体、HTML 标签、ASS 标签、声音描述、歌词及括号内容。
         6. 片名、人名、组织、地点及其他专有名词必须跨块统一。
-        7. JSON 结构必须为 {"items":[{"id":1,"text":"中文字幕"}],"glossary_updates":[{"source":"Name","target":"译名"}]}。
+        7. JSON 结构必须为 {"items":[{"id":1,"source":"原文","text":"译文"}],"glossary_updates":[{"source":"Name","target":"译名"}]}。source 必须与该 ID 的输入完全一致。
         8. 不要调用任何工具，不要读取本地文件；仅使用本提示中提供的内容。
+        9. 每条 ID 是独立的播放时间窗口。即使一句话跨多条字幕，也绝不能合并、提前翻译下一条、把本条内容挪到前后 ID，或重新编号。允许片段句，只翻译该条原文覆盖的内容。
+        10. 例：ID 247="I'll explain this"、ID 248="as simply as I can."，应分别翻译为“我来解释一下”和“尽量说得简单些。”；不能把两条合成一句放进 ID 247，再把后一句挪入 ID 248。
+        11. 正文换行按 JSON 的单次转义编码，解码后必须是真实换行；不要输出字面反斜杠+n。生成每项前对照该 ID 的 source，确认 text 没有包含相邻 ID 的对白。
 
         当前术语表：
         \(jsonString(Array(request.glossary.suffix(500))))
@@ -74,7 +79,7 @@ public struct TranslationPromptBuilder: Sendable {
             prompt += """
 
 
-            上一次输出未通过格式校验。请仅修复格式和 ID 对应关系，不要省略内容，并重新输出完整严格 JSON：
+            以下是上次输出，仅供参考。只输出当前 CORE 列出的 ID，修正原文与译文对应关系；不要输出已完成 ID，也不要因参考输出而改变当前 CORE：
             \(String(invalid.prefix(200_000)))
             """
         }
@@ -86,8 +91,10 @@ public struct TranslationPromptBuilder: Sendable {
         var lines: [String] = []
         var count = 0
         for cue in cues {
-            let escaped = cue.text.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\n", with: "\\n")
-            let line = "[\(cue.id)] \(escaped)"
+            // A real JSON string avoids ambiguous literal \\n and quote escaping
+            // in the old ad-hoc [ID] text format.
+            let encoded = (try? JSONEncoder().encode(TranslationSource(id: cue.id, source: cue.text))) ?? Data()
+            let line = String(decoding: encoded, as: UTF8.self)
             if let maximumCharacters, !lines.isEmpty, count + line.count + 1 > maximumCharacters {
                 lines.append("（其余上下文因长度限制省略）")
                 break
@@ -102,10 +109,14 @@ public struct TranslationPromptBuilder: Sendable {
         guard let data = try? JSONEncoder().encode(value) else { return "[]" }
         return String(decoding: data, as: UTF8.self)
     }
+
+    private struct TranslationSource: Encodable {
+        let id: Int
+        let source: String
+    }
 }
 
 public struct TranslationEngine: Sendable {
-    private static let maximumRecoveryBatchSize = 250
     private static let recoveryContextCount = 50
     private let provider: TranslationProvider
     private let validator: TranslationValidator
@@ -121,126 +132,80 @@ public struct TranslationEngine: Sendable {
         glossary: [GlossaryEntry],
         sourceLanguage: SubtitleLanguage = .english,
         targetLanguage: SubtitleLanguage = .simplifiedChinese,
+        completedItems: [Int: String] = [:],
+        onValidated: (TranslationResponse) async throws -> Void = { _ in },
         onRepair: () -> Void = {}
     ) async throws -> TranslationResponse {
-        let request = TranslationRequest(
-            chunk: chunk,
-            movie: movie,
-            glossary: glossary,
-            sourceLanguage: sourceLanguage,
-            targetLanguage: targetLanguage
-        )
-        let first = try await provider.translate(request)
-        do {
-            return try validator.validate(rawJSON: first, expectedIDs: chunk.core.map(\.id))
-        } catch {
-            onRepair()
-            if let partial = try? validator.validatePartial(
-                rawJSON: first,
-                expectedIDs: chunk.core.map(\.id)
-            ) {
-                let returnedIDs = Set(partial.items.map(\.id))
-                let missingCues = chunk.core.filter { !returnedIDs.contains($0.id) }
-                if !partial.items.isEmpty, !missingCues.isEmpty {
-                    let missingChunk = recoveryChunk(for: missingCues, in: chunk)
-                    let recoveryChunks = splitForRecovery(missingChunk)
-                    var recovered: [TranslationResponse] = []
-                    for recoveryChunk in recoveryChunks {
-                        try Task.checkCancellation()
-                        recovered.append(try await recover(
-                            chunk: recoveryChunk,
-                            movie: movie,
-                            glossary: glossary + partial.glossaryUpdates + recovered.flatMap(\.glossaryUpdates),
-                            sourceLanguage: sourceLanguage,
-                            targetLanguage: targetLanguage
-                        ))
-                    }
-                    return try merged(
-                        responses: [partial] + recovered,
-                        expectedIDs: chunk.core.map(\.id)
-                    )
-                }
-            }
-
-            // If the JSON itself was truncated, complete a single recovery
-            // round in bounded batches. Large 500-item output is the common
-            // failure mode; 250-item batches stay comfortably below it.
-            let recoveryChunks = splitForRecovery(chunk)
-            var responses: [TranslationResponse] = []
-            for recoveryChunk in recoveryChunks {
-                try Task.checkCancellation()
-                responses.append(try await recover(
-                    chunk: recoveryChunk,
-                    movie: movie,
-                    glossary: glossary + responses.flatMap(\.glossaryUpdates),
-                    sourceLanguage: sourceLanguage,
-                    targetLanguage: targetLanguage,
-                    previousInvalidOutput: recoveryChunks.count == 1 ? first : nil
-                ))
-            }
-            return try merged(responses: responses, expectedIDs: chunk.core.map(\.id))
-        }
-    }
-
-    /// Completes one bounded recovery batch. A partially valid response is
-    /// retained and only its missing IDs are submitted once more. This avoids
-    /// repeatedly retranslating hundreds of successful cues while guaranteeing
-    /// that recovery is finite rather than an unbounded retry loop.
-    private func recover(
-        chunk: TranslationChunk,
-        movie: MovieInfo,
-        glossary: [GlossaryEntry],
-        sourceLanguage: SubtitleLanguage,
-        targetLanguage: SubtitleLanguage,
-        previousInvalidOutput: String? = nil
-    ) async throws -> TranslationResponse {
-        let raw = try await provider.translate(TranslationRequest(
-            chunk: chunk,
-            movie: movie,
-            glossary: glossary,
-            previousInvalidOutput: previousInvalidOutput,
-            sourceLanguage: sourceLanguage,
-            targetLanguage: targetLanguage
-        ))
         let expectedIDs = chunk.core.map(\.id)
-        if let complete = try? validator.validate(rawJSON: raw, expectedIDs: expectedIDs) {
-            return complete
+        guard Set(expectedIDs).count == expectedIDs.count else {
+            throw AppError.invalidTranslation("输入字幕包含重复 ID。")
         }
-
-        if let partial = try? validator.validatePartial(rawJSON: raw, expectedIDs: expectedIDs),
-           !partial.items.isEmpty {
-            let returnedIDs = Set(partial.items.map(\.id))
-            let missingCues = chunk.core.filter { !returnedIDs.contains($0.id) }
-            guard !missingCues.isEmpty else {
-                return try validator.validate(response: partial, expectedIDs: expectedIDs)
+        var byID: [Int: TranslationItem] = [:]
+        for cue in chunk.core {
+            if let text = completedItems[cue.id], !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                byID[cue.id] = TranslationItem(id: cue.id, text: text)
             }
-            let missingChunk = recoveryChunk(for: missingCues, in: chunk)
-            let repairedRaw = try await provider.translate(TranslationRequest(
-                chunk: missingChunk,
-                movie: movie,
-                glossary: glossary + partial.glossaryUpdates,
-                previousInvalidOutput: raw,
-                sourceLanguage: sourceLanguage,
-                targetLanguage: targetLanguage
-            ))
-            let repaired = try validator.validate(
-                rawJSON: repairedRaw,
-                expectedIDs: missingCues.map(\.id)
-            )
-            return try merged(responses: [partial, repaired], expectedIDs: expectedIDs)
         }
-
-        // The batch contained no safely reusable items (for example truncated
-        // JSON). Make exactly one format-repair request for this bounded batch.
-        let repairedRaw = try await provider.translate(TranslationRequest(
-            chunk: chunk,
-            movie: movie,
-            glossary: glossary,
-            previousInvalidOutput: raw,
-            sourceLanguage: sourceLanguage,
-            targetLanguage: targetLanguage
-        ))
-        return try validator.validate(rawJSON: repairedRaw, expectedIDs: expectedIDs)
+        var updates: [GlossaryEntry] = []
+        var lastFailure: String?
+        // One normal request, then at most two progressively smaller recovery
+        // rounds. Both character and cue limits apply to repairs.
+        for round in 0..<3 {
+            try Task.checkCancellation()
+            let pending = chunk.core.filter { byID[$0.id] == nil }
+            if pending.isEmpty { break }
+            if round > 0 { onRepair() }
+            let batches: [[SubtitleCue]]
+            if round == 0 {
+                batches = [pending]
+            } else {
+                let limit = round == 1 ? 250 : 125
+                batches = TranslationChunker(configuration: .init(
+                    targetCoreCount: limit, maximumCoreCount: limit,
+                    maximumCoreCharacters: round == 1 ? 30_000 : 15_000,
+                    contextCount: 0
+                )).chunks(for: pending).map(\.core)
+            }
+            for cues in batches {
+                try Task.checkCancellation()
+                let request = TranslationRequest(
+                    chunk: recoveryChunk(for: cues, in: chunk),
+                    movie: movie,
+                    glossary: TranslationGlossary.merge(glossary, updates),
+                    sourceLanguage: sourceLanguage,
+                    targetLanguage: targetLanguage
+                )
+                let raw = try await provider.translate(request)
+                try Task.checkCancellation()
+                let partial: TranslationResponse
+                do {
+                    partial = try validator.alignedPartial(
+                        rawJSON: raw, expectedCues: cues,
+                        requiresSourceEcho: provider.requiresSourceEcho
+                    )
+                } catch {
+                    lastFailure = error.localizedDescription
+                    continue
+                }
+                guard !partial.items.isEmpty else { continue }
+                for item in partial.items { byID[item.id] = item }
+                updates = TranslationGlossary.merge(updates, partial.glossaryUpdates)
+                // Persist outside the parse-error catch: storage errors and
+                // cancellation must not be mistaken for model format failures.
+                try await onValidated(partial)
+            }
+        }
+        let pendingIDs = expectedIDs.filter { byID[$0] == nil }
+        guard pendingIDs.isEmpty else {
+            let reason = lastFailure.map { " \($0)" } ?? ""
+            throw AppError.invalidTranslation(
+                "缺失或原文对应无效的字幕 ID：\(pendingIDs.map(String.init).joined(separator: ", "))。已保存通过校验的条目，重试将只处理剩余条目。\(reason)"
+            )
+        }
+        return try validator.validate(
+            response: TranslationResponse(items: expectedIDs.compactMap { byID[$0] }, glossaryUpdates: updates),
+            expectedIDs: expectedIDs
+        )
     }
 
     private func recoveryChunk(for cues: [SubtitleCue], in original: TranslationChunk) -> TranslationChunk {
@@ -248,52 +213,38 @@ public struct TranslationEngine: Sendable {
         let all = original.previousContext + original.core + original.nextContext
         guard let firstIndex = all.firstIndex(where: { missingIDs.contains($0.id) }),
               let lastIndex = all.lastIndex(where: { missingIDs.contains($0.id) }) else {
-            return TranslationChunk(
-                index: original.index,
-                core: cues,
-                previousContext: original.previousContext,
-                nextContext: original.nextContext
-            )
+            return TranslationChunk(index: original.index, core: cues,
+                previousContext: original.previousContext, nextContext: original.nextContext)
         }
-        let previousStart = max(0, firstIndex - Self.recoveryContextCount)
-        let nextEnd = min(all.count, lastIndex + 1 + Self.recoveryContextCount)
         return TranslationChunk(
             index: original.index,
             core: cues,
-            previousContext: all[previousStart..<firstIndex].filter { !missingIDs.contains($0.id) },
-            nextContext: all[(lastIndex + 1)..<nextEnd].filter { !missingIDs.contains($0.id) }
+            previousContext: Array(all[max(0, firstIndex - Self.recoveryContextCount)..<firstIndex]),
+            nextContext: Array(all[(lastIndex + 1)..<min(all.count, lastIndex + 1 + Self.recoveryContextCount)])
         )
     }
+}
 
-    private func splitForRecovery(_ chunk: TranslationChunk) -> [TranslationChunk] {
-        guard chunk.core.count > Self.maximumRecoveryBatchSize else { return [chunk] }
-        var result: [TranslationChunk] = []
-        var start = 0
-        while start < chunk.core.count {
-            let end = min(chunk.core.count, start + Self.maximumRecoveryBatchSize)
-            let previous = Array((chunk.previousContext + chunk.core[..<start]).suffix(Self.recoveryContextCount))
-            let next = Array((chunk.core[end...] + chunk.nextContext).prefix(Self.recoveryContextCount))
-            result.append(TranslationChunk(
-                index: chunk.index,
-                core: Array(chunk.core[start..<end]),
-                previousContext: previous,
-                nextContext: next
-            ))
-            start = end
+/// Bound both memory and prompt size. A lookup table avoids repeatedly scanning
+/// up to 500 existing terms for every new entry.
+enum TranslationGlossary {
+    static func merge(_ existing: [GlossaryEntry], _ updates: [GlossaryEntry]) -> [GlossaryEntry] {
+        var result: [GlossaryEntry] = []
+        var indexes: [String: Int] = [:]
+        for entry in existing.suffix(500) + updates {
+            let source = String(entry.source.prefix(200))
+            let target = String(entry.target.prefix(200))
+            guard !source.isEmpty, !target.isEmpty else { continue }
+            let key = source.lowercased()
+            let bounded = GlossaryEntry(source: source, target: target)
+            if let index = indexes[key] {
+                result[index] = bounded
+            } else {
+                indexes[key] = result.count
+                result.append(bounded)
+            }
         }
-        return result
-    }
-
-    private func merged(
-        responses: [TranslationResponse],
-        expectedIDs: [Int]
-    ) throws -> TranslationResponse {
-        let byID = Dictionary(uniqueKeysWithValues: responses.flatMap(\.items).map { ($0.id, $0) })
-        let response = TranslationResponse(
-            items: expectedIDs.compactMap { byID[$0] },
-            glossaryUpdates: responses.flatMap(\.glossaryUpdates)
-        )
-        return try validator.validate(response: response, expectedIDs: expectedIDs)
+        return Array(result.suffix(500))
     }
 }
 
