@@ -373,3 +373,15 @@
 "；" = "; ";
 "字幕提取已取消，可以重试。" = "Subtitle extraction was cancelled. You can try again.";
 "字幕生成已取消；已完成的手动分段仍然保留。" = "Subtitle generation was cancelled; completed manual segments are still saved.";
+"关闭额外推理（速度优先）" = "No extra reasoning (faster)";
+"推理强度" = "Reasoning effort";
+"刷新模型列表" = "Refresh models";
+"正在刷新模型…" = "Refreshing models…";
+"电影信息（可选）" = "Movie details (optional)";
+"条（1–1000，默认 250）" = "cues (1–1000, default 250)";
+"模型列表已刷新；不会自动更换当前模型或推理强度。" = "Models refreshed. Your model and reasoning effort have not been changed.";
+"当前模型或推理强度不在刷新后的支持列表中，请手动重新选择。" = "The selected model or effort is not in the refreshed list. Please choose a supported option.";
+"模型列表刷新失败。请检查连接和登录状态；若仍无效，请更新 Sub Buddy 和 Codex 后重试。" = "Could not refresh models. Check your connection and login; if it persists, update Sub Buddy and Codex, then retry.";
+"较高推理强度可能增加耗时和额度消耗，不保证译文一定更好。刷新列表无效时，建议更新 Sub Buddy 和 Codex。" = "Higher effort may take longer and use more allowance, without guaranteeing better translations. If refresh fails, update Sub Buddy and Codex.";
+"每块通过一次 stdin 整批提交；默认 Luna、关闭额外推理、250 条，更早保存首批结果。" = "Each batch is sent in one stdin request. Defaults: Luna, no extra reasoning, 250 cues for earlier saved results.";
+"使用本机 Codex model/list；刷新无效时请更新 Sub Buddy 和 Codex。" = "Uses local Codex model/list. If refresh fails, update Sub Buddy and Codex.";

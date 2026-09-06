@@ -11,6 +11,14 @@ final class LocalizationCoverageTests: XCTestCase {
 
     func testWorkspaceNavigationIsTranslatedInEverySupportedInterfaceLanguage() throws {
         let requiredKeys: Set<String> = [
+            "刷新模型列表", "正在刷新模型…", "推理强度", "关闭额外推理（速度优先）",
+            "电影信息（可选）", "条（1–1000，默认 250）",
+            "模型列表已刷新；不会自动更换当前模型或推理强度。",
+            "当前模型或推理强度不在刷新后的支持列表中，请手动重新选择。",
+            "模型列表刷新失败。请检查连接和登录状态；若仍无效，请更新 Sub Buddy 和 Codex 后重试。",
+            "较高推理强度可能增加耗时和额度消耗，不保证译文一定更好。刷新列表无效时，建议更新 Sub Buddy 和 Codex。",
+            "每块通过一次 stdin 整批提交；默认 Luna、关闭额外推理、250 条，更早保存首批结果。",
+            "使用本机 Codex model/list；刷新无效时请更新 Sub Buddy 和 Codex。",
             "选择影片", "选择字幕", "翻译设置", "生成字幕", "完成",
             "运行环境和连接", "没有合适字幕？从英语音轨生成",
             "拖入一部影片或选择文件，应用只读取媒体信息。",

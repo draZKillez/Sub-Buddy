@@ -111,8 +111,12 @@ final class AppViewModel: ObservableObject {
     @Published var sourceLanguage: SubtitleLanguage = .english
     @Published var targetLanguage: SubtitleLanguage = .simplifiedChinese
     @Published var deliveryMode: DeliveryMode = .sidecarSRT
-    @Published var translationChunkSize = 500
+    @Published var translationChunkSize = 250
     @Published var codexModel: CodexModel = .luna
+    @Published var codexReasoningEffort: CodexReasoningEffort = .none
+    @Published private(set) var codexModels: [CodexModelCapability] = []
+    @Published private(set) var isRefreshingModels = false
+    @Published private(set) var modelRefreshMessage = ""
     @Published var workflowMode: TranslationWorkflowMode = .automatic
     @Published var appleLocalTranslationStatus: AppleLocalTranslationStatus = .checking
     @Published var manualSession: ManualTranslationSession?
@@ -194,6 +198,12 @@ final class AppViewModel: ObservableObject {
         tools = paths
         inspector = MKVInspector(ffprobeURL: paths.ffprobe)
         bridge = CodexBridge(codexURL: paths.codex, model: CodexModel.luna.rawValue)
+#if DEBUG
+        if WorkspaceSnapshot.path != nil {
+            WorkspaceSnapshot.prepare(self)
+            return
+        }
+#endif
         Task { await refreshCodexStatus() }
         Task { await refreshAppleTranslationAvailability() }
         Task { await restoreBatchQueue() }
@@ -278,7 +288,7 @@ final class AppViewModel: ObservableObject {
     var selectedTranslationProviderIsReady: Bool {
         switch workflowMode {
         case .automatic:
-            return codexStatus == .loggedIn
+            return codexStatus == .loggedIn && codexSelectionIsValid
         case .appleLocal:
             return appleLocalTranslationStatus.isReady
         case .manual:
@@ -403,6 +413,7 @@ final class AppViewModel: ObservableObject {
         whisperStatusMessage = ""
         ffmpegInstallLog = ""
         mkvToolNixInstallLog = ""
+        modelRefreshMessage = ""
         speechRecognitionProgress = .init(
             phase: .extractingAudio,
             fraction: 0,
@@ -460,10 +471,41 @@ final class AppViewModel: ObservableObject {
 
     func codexModelDidChange() {
         guard !isWorking else { return }
-        bridge = CodexBridge(codexURL: tools.codex, model: codexModel.rawValue)
+        bridge = CodexBridge(codexURL: tools.codex, model: codexModel.rawValue, reasoningEffort: codexReasoningEffort)
         errorMessage = nil
         if codexStatus == .modelUnavailable || codexStatus == .quotaOrServiceUnavailable {
             Task { await refreshCodexStatus() }
+        }
+    }
+
+    var selectableCodexModels: [CodexModel] {
+        var models = codexModels.isEmpty ? CodexModel.allCases : codexModels.map { CodexModel(rawValue: $0.model) }
+        if !models.contains(codexModel) { models.insert(codexModel, at: 0) }
+        return models
+    }
+
+    var availableReasoningEfforts: [CodexReasoningEffort] {
+        codexModels.first(where: { $0.model == codexModel.rawValue })?.translationEfforts ?? [.none]
+    }
+
+    var codexSelectionIsValid: Bool {
+        (codexModels.isEmpty || codexModels.contains(where: { $0.model == codexModel.rawValue })) &&
+        availableReasoningEfforts.contains(codexReasoningEffort)
+    }
+
+    func refreshModels() async {
+        guard !isRefreshingModels, !isWorking else { return }
+        isRefreshingModels = true
+        defer { isRefreshingModels = false }
+        let executable = tools.codex
+        do {
+            let models = try await CodexModelCatalog().refresh(executable: executable)
+            guard executable == tools.codex else { return }
+            codexModels = models
+            modelRefreshMessage = AppInterfaceLanguage.localized("模型列表已刷新；不会自动更换当前模型或推理强度。")
+            await refreshCodexStatus()
+        } catch {
+            modelRefreshMessage = AppInterfaceLanguage.localized("模型列表刷新失败。请检查连接和登录状态；若仍无效，请更新 Sub Buddy 和 Codex 后重试。")
         }
     }
 
@@ -1013,7 +1055,7 @@ final class AppViewModel: ObservableObject {
         let paths = locator.locate()
         tools = paths
         inspector = MKVInspector(ffprobeURL: paths.ffprobe)
-        bridge = CodexBridge(codexURL: paths.codex, model: codexModel.rawValue)
+        bridge = CodexBridge(codexURL: paths.codex, model: codexModel.rawValue, reasoningEffort: codexReasoningEffort)
         codexStatus = await bridge.connectionStatus()
     }
 
@@ -1813,6 +1855,9 @@ final class AppViewModel: ObservableObject {
     }
 
     private func selectedTranslationProvider() throws -> any TranslationProvider {
+        if workflowMode == .automatic && !codexSelectionIsValid {
+            throw AppError.invalidTranslation("当前模型或推理强度不在刷新后的支持列表中，请手动重新选择。")
+        }
         switch workflowMode {
         case .automatic:
             guard codexStatus == .loggedIn else {
@@ -1932,6 +1977,7 @@ final class AppViewModel: ObservableObject {
             case .luna: return .codexLuna
             case .terra: return .codexTerra
             case .sol: return .codexSol
+            default: return .codexSol
             }
         case .appleLocal:
             return .appleLocal

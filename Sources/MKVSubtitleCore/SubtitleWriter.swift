@@ -13,7 +13,7 @@ public struct SubtitleWriter: Sendable {
                 if index > 0 { output.append("\n") }
                 output.append("\(cue.id)\n")
                 output.append("\(formatSRT(cue.startMilliseconds)) --> \(formatSRT(cue.endMilliseconds))\n")
-                output.append(cue.text)
+                output.append(try blockText(cue))
                 output.append("\n")
             }
             if document.cues.isEmpty { output.append("\n") }
@@ -27,7 +27,7 @@ public struct SubtitleWriter: Sendable {
                 if index > 0 { output.append("\n") }
                 output.append("\(cue.id)\n")
                 output.append("\(formatVTT(cue.startMilliseconds)) --> \(formatVTT(cue.endMilliseconds))\n")
-                output.append(cue.text)
+                output.append(try blockText(cue))
                 output.append("\n")
             }
             if document.cues.isEmpty { output.append("\n") }
@@ -85,6 +85,31 @@ public struct SubtitleWriter: Sendable {
         try data.write(to: temporary, options: .atomic)
         try Task.checkCancellation()
         try FileManager.default.moveItem(at: temporary, to: url)
+    }
+
+    /// SRT/VTT blank lines delimit cues; they cannot be literal body lines.
+    /// Model output and pasted text can contain leading/trailing blank lines.
+    /// Drop only whitespace-only lines, preserving every nonempty line and tag.
+    /// ASS uses a different newline representation and must not use this helper.
+    private func blockText(_ cue: SubtitleCue) throws -> String {
+        // CRLF is one Swift Character, so Character-based contains("\r") /
+        // contains("\n") can miss it. Inspect ASCII bytes for this fast path.
+        let hasCR = cue.text.utf8.contains(13)
+        let hasLF = cue.text.utf8.contains(10)
+        if !hasLF, !hasCR,
+           !cue.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return cue.text
+        }
+        let normalized = hasCR
+            ? cue.text.replacingOccurrences(of: "\r\n", with: "\n").replacingOccurrences(of: "\r", with: "\n")
+            : cue.text
+        let lines = normalized.components(separatedBy: "\n").filter {
+            !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
+        guard !lines.isEmpty else {
+            throw AppError.parsingFailed("字幕 ID \(cue.id) 的正文为空，无法导出。")
+        }
+        return lines.joined(separator: "\n")
     }
 
     private func formatSRT(_ milliseconds: Int64) -> String {

@@ -244,8 +244,10 @@ public struct ManualTranslationSession: Codable, Equatable, Sendable {
         return """
         请将以下影视 SRT 字幕从 \(sourceLanguage.promptName) 翻译成自然、地道、口语化的 \(targetLanguage.promptName)。
         原始片名：\(movie.originalTitle)
-        目标语言片名：\(chineseTitle)
+        参考片名（用户填写，可能不是目标语言，仅供辨认影片）：\(chineseTitle)
         年份：\(year)
+
+        \(TranslationLanguagePolicy.instructions(source: sourceLanguage, target: targetLanguage))
 
         规则：
         1. 只翻译字幕正文，序号和时间轴必须原样保留。

@@ -4,6 +4,12 @@ import MKVSubtitleCore
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
+#if DEBUG
+        if WorkspaceSnapshot.path != nil {
+            WorkspaceSnapshot.captureWhenReady()
+            return
+        }
+#endif
         let originalURL = Bundle.main.bundleURL
         if originalURL.lastPathComponent == AppBundleNameMigrator.preferredBundleName {
             removeObsoleteLegacyCopies(alongside: originalURL)

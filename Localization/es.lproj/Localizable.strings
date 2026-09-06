@@ -161,3 +161,17 @@
 "翻译服务尚未就绪" = "El servicio de traducción no está listo";
 "字幕提取已取消，可以重试。" = "La extracción de subtítulos se canceló. Puedes intentarlo de nuevo.";
 "字幕生成已取消；已完成的手动分段仍然保留。" = "La generación de subtítulos se canceló; los segmentos manuales completados siguen guardados.";
+"关闭额外推理（速度优先）" = "Sin razonamiento adicional (más rápido)";
+"推理强度" = "Nivel de razonamiento";
+"刷新模型列表" = "Actualizar modelos";
+"正在刷新模型…" = "Actualizando modelos…";
+"电影信息（可选）" = "Datos de la película (opcional)";
+"条（1–1000，默认 250）" = "entradas (1–1000, predeterminado 250)";
+"模型列表已刷新；不会自动更换当前模型或推理强度。" = "Modelos actualizados. No se han cambiado el modelo ni el razonamiento.";
+"当前模型或推理强度不在刷新后的支持列表中，请手动重新选择。" = "El modelo o nivel elegido no figura en la lista actualizada. Selecciona otra opción.";
+"模型列表刷新失败。请检查连接和登录状态；若仍无效，请更新 Sub Buddy 和 Codex 后重试。" = "No se pudo actualizar la lista. Revisa la conexión y sesión; si persiste, actualiza Sub Buddy y Codex.";
+"较高推理强度可能增加耗时和额度消耗，不保证译文一定更好。刷新列表无效时，建议更新 Sub Buddy 和 Codex。" = "Un nivel mayor puede tardar y consumir más, sin garantizar mejores traducciones. Si la actualización falla, actualiza Sub Buddy y Codex.";
+"每块通过一次 stdin 整批提交；默认 Luna、关闭额外推理、250 条，更早保存首批结果。" = "Cada lote se envía en una solicitud stdin. Por defecto: Luna, sin razonamiento extra, 250 entradas para guardar antes.";
+"使用本机 Codex model/list；刷新无效时请更新 Sub Buddy 和 Codex。" = "Usa model/list de Codex local. Si falla, actualiza Sub Buddy y Codex.";
+"Codex 模型" = "Modelo de Codex";
+"媒体工具" = "Herramientas multimedia";

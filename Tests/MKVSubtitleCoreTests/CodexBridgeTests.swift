@@ -2,6 +2,13 @@ import XCTest
 @testable import MKVSubtitleCore
 
 final class CodexBridgeTests: XCTestCase {
+    func testReasoningEffortIsPassedExplicitly() async throws {
+        let executor = RecordingExecutor(result: .init(status: 0, standardOutput: #"{"type":"item.completed","item":{"type":"agent_message","text":"{}"}}"#, standardError: ""))
+        let bridge = CodexBridge(codexURL: URL(fileURLWithPath: "/tmp/codex"), model: "future-model", reasoningEffort: .high, executor: executor)
+        _ = try await bridge.executeTranslation(prompt: "test")
+        XCTAssertTrue(executor.lastArguments.contains("model_reasoning_effort=\"high\""))
+        XCTAssertEqual(Array(executor.lastArguments.suffix(3)), ["-m", "future-model", "-"])
+    }
     func testParsesFinalAgentMessageFromJSONL() throws {
         let jsonl = """
         {"type":"thread.started","thread_id":"abc"}

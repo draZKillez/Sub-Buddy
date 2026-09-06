@@ -48,11 +48,13 @@ Sub Buddy 是一款 macOS/iOS 字幕工具，核心功能是：
 
 原始 MKV 不会被直接覆盖。电影中文名、年份和每份字幕数量都是可选设置，不知道怎么填时保持默认即可。
 
+macOS 自动翻译默认 **Luna／关闭额外推理／250 条**。可点击“刷新模型列表”读取本机官方 Codex `model/list`，再手动选择模型和推理强度；刷新失败不会丢失当前选择，持续失败时请更新 Sub Buddy 和 Codex。Luna 的 `none` 已通过 `codex exec` 实测，因此即使列表未列出仍保留；其他推理档位按模型列表提供，不自动切换模型。
+
 #### iPhone / iPad
 
 1. 在 App 中选择 MKV、SRT、ASS、VTT 或 SUP 文件。
 2. 选择字幕轨道；图片字幕按提示在本机 OCR。
-3. 按默认每份 500 条拆分，逐份复制、翻译、粘贴并保存。
+3. macOS 默认每份 250 条（可修改；现有 iOS 版仍为 500），逐份复制、翻译、粘贴并保存。
 4. 所有分段完成后，导出纯译文或双语 SRT。
 
 iOS 测试版目前以单文件手动翻译为主，不包含 Codex 自动翻译、文件夹队列或 MKV 重新封装。
@@ -105,11 +107,13 @@ A reduced FFmpeg/ffprobe build is bundled with the app. The macOS package is Uni
 
 The original MKV is never overwritten directly. Movie title, year, and batch size are optional; the defaults are fine for most users.
 
+macOS automatic translation defaults to **Luna / no extra reasoning / 250 cues**. “Refresh models” reads the official local Codex `model/list`; model and effort changes remain manual. A failed refresh preserves your selection; update Sub Buddy and Codex if it persists. Luna's benchmark-verified `none` override remains available even when omitted by the catalog; other effort options come from the model list. No API key or credential-file access is involved.
+
 #### iPhone / iPad
 
 1. Pick an MKV, SRT, ASS, VTT, or SUP file from Files.
 2. Select a subtitle track; use the on-device OCR option for bitmap subtitles.
-3. Keep the default 500-item batch size, then copy, translate, paste, and save each batch.
+3. macOS defaults to 250 cues per batch (editable; the existing iOS build still defaults to 500). Copy, translate, paste, and save each batch.
 4. When every batch is complete, export a translation-only or bilingual SRT.
 
 The current iOS test build focuses on one-file manual translation. It does not include automatic Codex translation, folder queues, or MKV remuxing.

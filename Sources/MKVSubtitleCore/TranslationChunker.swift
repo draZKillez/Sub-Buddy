@@ -8,8 +8,8 @@ public struct TranslationChunker: Sendable {
         public var contextCount: Int
 
         public init(
-            targetCoreCount: Int = 500,
-            maximumCoreCount: Int = 500,
+            targetCoreCount: Int = 250,
+            maximumCoreCount: Int = 250,
             maximumCoreCharacters: Int = 80_000,
             contextCount: Int = 50
         ) {

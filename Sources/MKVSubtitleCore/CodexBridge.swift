@@ -20,10 +20,13 @@ public enum CodexConnectionStatus: Equatable, Sendable {
     }
 }
 
-public enum CodexModel: String, CaseIterable, Codable, Identifiable, Sendable {
-    case luna = "gpt-5.6-luna"
-    case terra = "gpt-5.6-terra"
-    case sol = "gpt-5.6-sol"
+public struct CodexModel: RawRepresentable, Hashable, CaseIterable, Codable, Identifiable, Sendable {
+    public let rawValue: String
+    public init(rawValue: String) { self.rawValue = rawValue }
+    public static let luna = Self(rawValue: "gpt-5.6-luna")
+    public static let terra = Self(rawValue: "gpt-5.6-terra")
+    public static let sol = Self(rawValue: "gpt-5.6-sol")
+    public static let allCases: [Self] = [.luna, .terra, .sol]
 
     public var id: String { rawValue }
 
@@ -33,6 +36,7 @@ public enum CodexModel: String, CaseIterable, Codable, Identifiable, Sendable {
         case .luna: key = "GPT-5.6 Luna（高吞吐）"
         case .terra: key = "GPT-5.6 Terra（均衡）"
         case .sol: key = "GPT-5.6 Sol（质量优先）"
+        default: return rawValue
         }
         return AppInterfaceLanguage.localized(key)
     }
@@ -43,6 +47,7 @@ public enum CodexModel: String, CaseIterable, Codable, Identifiable, Sendable {
         case .luna: key = "适合大量字幕，默认推荐"
         case .terra: key = "速度和表达质量更均衡"
         case .sol: key = "质量优先，通常等待更久"
+        default: return rawValue
         }
         return AppInterfaceLanguage.localized(key)
     }
@@ -80,6 +85,7 @@ public struct CodexJSONLParser: Sendable {
 public final class CodexBridge: @unchecked Sendable {
     public static let defaultModel = CodexModel.luna.rawValue
     public let model: String
+    public let reasoningEffort: CodexReasoningEffort
     private let codexURL: URL?
     private let executor: ProcessExecuting
     private let jsonlParser: CodexJSONLParser
@@ -87,11 +93,13 @@ public final class CodexBridge: @unchecked Sendable {
     public init(
         codexURL: URL?,
         model: String = CodexBridge.defaultModel,
+        reasoningEffort: CodexReasoningEffort = .none,
         executor: ProcessExecuting = ProcessExecutor(),
         jsonlParser: CodexJSONLParser = .init()
     ) {
         self.codexURL = codexURL
         self.model = model
+        self.reasoningEffort = reasoningEffort
         self.executor = executor
         self.jsonlParser = jsonlParser
     }
@@ -134,7 +142,7 @@ public final class CodexBridge: @unchecked Sendable {
             "--skip-git-repo-check",
             "--ignore-user-config",
             "--ignore-rules",
-            "-c", "model_reasoning_effort=\"none\"",
+            "-c", "model_reasoning_effort=\"\(reasoningEffort.rawValue)\"",
             "-C", workingDirectory.path,
             "-m", model,
             "-"

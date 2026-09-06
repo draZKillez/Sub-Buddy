@@ -53,6 +53,7 @@ cp "$PROJECT_ROOT/Vendor/MKVFFmpeg/FFmpeg-BUILD-CONFIGURATION.txt" "$APP_BUNDLE/
     "$PROJECT_ROOT/Sources/MKVSubtitleCore/SubtitleWriter.swift" \
     "$PROJECT_ROOT/Sources/MKVSubtitleCore/MovieTitleResolver.swift" \
     "$PROJECT_ROOT/Sources/MKVSubtitleCore/ManualTranslation.swift" \
+    "$PROJECT_ROOT/Sources/MKVSubtitleCore/TranslationLanguagePolicy.swift" \
     "$PROJECT_ROOT/Sources/MKVSubtitleCore/PGSOCRService.swift" \
     "$PROJECT_ROOT/Sources/MKVSubtitleCore/BitmapSubtitleArchive.swift" \
     "$PROJECT_ROOT/iOS/Sources/MobileSubtitleOutputComposer.swift" \

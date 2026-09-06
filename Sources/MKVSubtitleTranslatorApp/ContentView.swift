@@ -36,6 +36,7 @@ private enum WorkspaceStep: Int, CaseIterable, Identifiable {
 struct ContentView: View {
     @ObservedObject var viewModel: AppViewModel
     @EnvironmentObject private var updateController: UpdateController
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @AppStorage(AppInterfaceLanguage.preferenceKey) private var interfaceLanguage: AppInterfaceLanguage = .simplifiedChinese
     @State private var isDropTargeted = false
     @State private var workspaceStep: WorkspaceStep = .media
@@ -50,15 +51,28 @@ struct ContentView: View {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 16) {
                         stepHeading
-                        stepContent
+                        VStack(alignment: .leading, spacing: 20) { stepContent }
+                            .id(workspaceStep)
+                            .transition(.opacity)
                         if let error = viewModel.errorMessage, workspaceStep != .complete {
                             errorPanel(error)
                         }
                     }
-                    .padding(24)
-                    .frame(maxWidth: 980)
+                    .padding(32)
+                    .frame(maxWidth: 940)
                     .frame(maxWidth: .infinity, alignment: .top)
                     .groupBoxStyle(TranslatorCardGroupBoxStyle())
+                }
+                .safeAreaInset(edge: .bottom, spacing: 0) {
+                    if workspaceStep == .subtitles || workspaceStep == .settings {
+                        stepNavigation(
+                            back: workspaceStep == .subtitles ? .media : .subtitles,
+                            next: workspaceStep == .subtitles ? .settings : .generate,
+                            nextEnabled: viewModel.selectedTrack != nil && viewModel.chunkSizeIsValid && viewModel.languagePairIsValid
+                        )
+                        .padding(.horizontal, 32).padding(.vertical, 16)
+                        .background(.regularMaterial)
+                    }
                 }
             }
         }
@@ -69,6 +83,13 @@ struct ContentView: View {
         .environment(\.locale, interfaceLanguage.locale)
         .environment(\.layoutDirection, interfaceLanguage == .arabic ? .rightToLeft : .leftToRight)
         .tint(Color(red: 0.18, green: 0.38, blue: 0.82))
+        .onAppear {
+#if DEBUG
+            if WorkspaceSnapshot.path != nil { workspaceStep = WorkspaceStep(rawValue: WorkspaceSnapshot.step) ?? .media }
+#endif
+        }
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.18), value: workspaceStep)
+        .animation(reduceMotion ? nil : .easeOut(duration: 0.16), value: isDropTargeted)
         .onChange(of: viewModel.mediaInfo) { _, info in
             if info != nil, workspaceStep == .media { workspaceStep = .subtitles }
         }
@@ -124,12 +145,7 @@ struct ContentView: View {
                     .scaledToFit()
                     .clipShape(RoundedRectangle(cornerRadius: 10))
                     .frame(width: 42, height: 42)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("字幕搭档").font(.headline)
-                    Text("Sub Buddy")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                }
+                Text("Sub Buddy").font(.system(.headline, design: .rounded))
             }
             .padding(.horizontal, 16)
 
@@ -178,8 +194,8 @@ struct ContentView: View {
                 .padding(.horizontal, 16)
         }
         .padding(.vertical, 16)
-        .frame(width: 225)
-        .background(Color(nsColor: .controlBackgroundColor).opacity(0.72))
+        .frame(width: 205)
+        .background(Color(nsColor: .controlBackgroundColor))
     }
 
     private var workspaceToolbar: some View {
@@ -188,7 +204,7 @@ struct ContentView: View {
                 .font(.headline)
             Spacer()
             Button("检查更新…") { updateController.checkForUpdates() }
-                .buttonStyle(.bordered)
+                .buttonStyle(.borderless)
                 .disabled(!updateController.canCheckForUpdates)
             Menu {
                 Picker("界面语言", selection: $interfaceLanguage) {
@@ -199,6 +215,8 @@ struct ContentView: View {
             } label: {
                 Label(interfaceLanguage.nativeName, systemImage: "globe")
             }
+            .fixedSize()
+            .frame(maxWidth: 180)
             .disabled(
                 viewModel.isWorking || viewModel.isSpeechRecognizing || viewModel.isBatchProcessing ||
                 viewModel.isInstallingFFmpeg || viewModel.isInstallingMKVToolNix ||
@@ -212,7 +230,7 @@ struct ContentView: View {
 
     private var stepHeading: some View {
         VStack(alignment: .leading, spacing: 5) {
-            Text(workspaceStep.title).font(.title2.bold())
+            Text(workspaceStep.title).font(.system(size: 28, weight: .bold, design: .rounded))
             Text(stepDescription)
                 .font(.callout)
                 .foregroundStyle(.secondary)
@@ -245,17 +263,15 @@ struct ContentView: View {
                 DisclosureGroup(AppInterfaceLanguage.localized("没有合适字幕？从英语音轨生成")) {
                     speechRecognition(info).padding(.top, 10)
                 }
-                stepNavigation(back: .media, next: .settings, nextEnabled: viewModel.selectedTrack != nil)
             }
         case .settings:
             if let info = viewModel.mediaInfo { mediaSummary(info) }
-            movieMetadata
             translationSettings
-            stepNavigation(
-                back: .subtitles,
-                next: .generate,
-                nextEnabled: viewModel.selectedTrack != nil && viewModel.chunkSizeIsValid && viewModel.languagePairIsValid
-            )
+                .labeledContentStyle(WorkspaceSettingStyle())
+                .animation(reduceMotion ? nil : .easeInOut(duration: 0.18), value: viewModel.workflowMode)
+            DisclosureGroup(AppInterfaceLanguage.localized("电影信息（可选）")) {
+                movieMetadata.padding(.top, 12)
+            }
         case .generate:
             generationSummary
             generationControls
@@ -294,6 +310,7 @@ struct ContentView: View {
     }
 
     private func stepIsAvailable(_ step: WorkspaceStep) -> Bool {
+        if viewModel.isMediaBusy || viewModel.isInspecting { return step == workspaceStep }
         switch step {
         case .media: return true
         case .subtitles: return viewModel.mediaInfo != nil
@@ -444,12 +461,12 @@ struct ContentView: View {
 
     private var dropZone: some View {
         RoundedRectangle(cornerRadius: 14)
-            .fill(isDropTargeted ? Color.accentColor.opacity(0.15) : Color.secondary.opacity(0.08))
-            .strokeBorder(isDropTargeted ? Color.accentColor : Color.secondary.opacity(0.35), style: StrokeStyle(lineWidth: 2, dash: [8]))
-            .frame(height: 145)
+            .fill(isDropTargeted ? Color.accentColor.opacity(0.12) : Color.accentColor.opacity(0.035))
+            .strokeBorder(isDropTargeted ? Color.accentColor : Color.accentColor.opacity(0.25), style: StrokeStyle(lineWidth: 1.5, dash: [6]))
+            .frame(height: 290)
             .overlay {
-                VStack(spacing: 10) {
-                    Image(systemName: "arrow.down.doc.fill").font(.system(size: 34)).foregroundStyle(.tint)
+                VStack(spacing: 18) {
+                    Image(systemName: "captions.bubble").font(.system(size: 48, weight: .light)).foregroundStyle(.tint)
                     Text(viewModel.selectedFile?.lastPathComponent ?? viewModel.selectedFolder?.lastPathComponent ?? "将 MKV 文件拖到这里").font(.headline)
                     Text("支持中文、空格及特殊字符文件名").font(.caption).foregroundStyle(.secondary)
                     HStack {
@@ -461,6 +478,7 @@ struct ContentView: View {
                             .disabled(viewModel.isMediaBusy || viewModel.isInspecting || viewModel.isScanningFolder)
                     }
                 }
+                .padding(24)
             }
             .onDrop(of: [UTType.fileURL], isTargeted: $isDropTargeted) { providers in
                 guard !viewModel.isMediaBusy, !viewModel.isInspecting, !viewModel.isScanningFolder else { return false }
@@ -596,6 +614,7 @@ struct ContentView: View {
                 }
 
                 HStack {
+                    modelRefreshButton
                     if !viewModel.ffmpegReady {
                         Label(
                             viewModel.tools.homebrew == nil ? "未检测到 Homebrew" : "已检测到 Homebrew，可由应用安装 FFmpeg",
@@ -625,6 +644,9 @@ struct ContentView: View {
                     Button("重新检测") { Task { await viewModel.refreshEnvironment() } }
                         .buttonStyle(.bordered)
                         .disabled(viewModel.isLoggingIn || viewModel.isWorking || viewModel.isInstallingFFmpeg || viewModel.isInstallingMKVToolNix)
+                }
+                if !viewModel.modelRefreshMessage.isEmpty {
+                    Text(viewModel.modelRefreshMessage).font(.caption).foregroundStyle(.secondary)
                 }
 
                 if viewModel.isInstallingFFmpeg {
@@ -718,6 +740,8 @@ struct ContentView: View {
                         }
                         .contentShape(Rectangle())
                         .padding(.vertical, 7)
+                        .background(viewModel.selectedTrackIndex == track.streamIndex ? Color.accentColor.opacity(0.08) : Color.clear,
+                                    in: RoundedRectangle(cornerRadius: 6))
                     }
                     .buttonStyle(.plain)
                     .disabled(!track.isProcessable || viewModel.isWorking || viewModel.isInspecting)
@@ -927,14 +951,16 @@ struct ContentView: View {
                                 Text(language.displayName).tag(language)
                             }
                         }
-                        .frame(width: 150)
-                        Text("→").foregroundStyle(.secondary)
+                        .labelsHidden()
+                        .frame(width: 200)
+                        Text(interfaceLanguage == .arabic ? "←" : "→").foregroundStyle(.secondary)
                         Picker("目标语言", selection: $viewModel.targetLanguage) {
                             ForEach(SubtitleLanguage.allCases) { language in
                                 Text(language.displayName).tag(language)
                             }
                         }
-                        .frame(width: 150)
+                        .labelsHidden()
+                        .frame(width: 200)
                     }
                     .disabled(viewModel.isWorking || viewModel.manualSession != nil)
                     .onChange(of: viewModel.sourceLanguage) { _, _ in viewModel.languageSettingsDidChange() }
@@ -953,7 +979,7 @@ struct ContentView: View {
                     }
                     .labelsHidden()
                     .pickerStyle(.segmented)
-                    .frame(width: 330)
+                    .frame(maxWidth: .infinity)
                     .disabled(viewModel.isWorking)
                     .onChange(of: viewModel.workflowMode) { _, _ in
                         viewModel.workflowModeDidChange()
@@ -963,7 +989,7 @@ struct ContentView: View {
                     LabeledContent("Codex 模型") {
                         HStack(spacing: 10) {
                             Picker("Codex 模型", selection: $viewModel.codexModel) {
-                                ForEach(CodexModel.allCases) { model in
+                                ForEach(viewModel.selectableCodexModels) { model in
                                     Text(model.displayName).tag(model)
                                 }
                             }
@@ -973,10 +999,33 @@ struct ContentView: View {
                             .onChange(of: viewModel.codexModel) { _, _ in
                                 viewModel.codexModelDidChange()
                             }
-                            Text(viewModel.codexModel.detail)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
+                            modelRefreshButton
                         }
+                    }
+                    LabeledContent("推理强度") {
+                        Picker("推理强度", selection: $viewModel.codexReasoningEffort) {
+                            ForEach(Array(Set(viewModel.availableReasoningEfforts + [viewModel.codexReasoningEffort])).sorted {
+                                CodexReasoningEffort.allCases.firstIndex(of: $0)! < CodexReasoningEffort.allCases.firstIndex(of: $1)!
+                            }) { effort in
+                                Text(effort.displayName).tag(effort)
+                            }
+                        }
+                        .labelsHidden().frame(width: 330)
+                        .disabled(viewModel.isWorking)
+                        .onChange(of: viewModel.codexReasoningEffort) { _, _ in viewModel.codexModelDidChange() }
+                    }
+                    Text("较高推理强度可能增加耗时和额度消耗，不保证译文一定更好。刷新列表无效时，建议更新 Sub Buddy 和 Codex。")
+                        .font(.caption).foregroundStyle(.secondary)
+                    if !viewModel.modelRefreshMessage.isEmpty {
+                        Text(viewModel.modelRefreshMessage).font(.caption).foregroundStyle(.secondary)
+                    }
+                    if !viewModel.codexSelectionIsValid {
+                        Label("当前模型或推理强度不在刷新后的支持列表中，请手动重新选择。", systemImage: "exclamationmark.triangle")
+                            .font(.caption).foregroundStyle(.orange)
+                    }
+                    if viewModel.codexStatus != .loggedIn {
+                        Button("连接 ChatGPT") { viewModel.connectChatGPT() }
+                            .disabled(viewModel.isLoggingIn || viewModel.tools.codex == nil)
                     }
                 }
                 if viewModel.workflowMode == .appleLocal {
@@ -1000,7 +1049,7 @@ struct ContentView: View {
                     }
                     .labelsHidden()
                     .pickerStyle(.segmented)
-                    .frame(width: 330)
+                    .frame(maxWidth: .infinity)
                     .disabled(viewModel.isWorking)
                     .onChange(of: viewModel.deliveryMode) { _, _ in
                         viewModel.outputSettingsDidChange()
@@ -1014,7 +1063,7 @@ struct ContentView: View {
                     }
                     .labelsHidden()
                     .pickerStyle(.segmented)
-                    .frame(width: 250)
+                    .frame(maxWidth: .infinity)
                     .disabled(viewModel.isWorking)
                     .onChange(of: viewModel.subtitleOutputMode) { _, _ in
                         viewModel.outputSettingsDidChange()
@@ -1022,18 +1071,18 @@ struct ContentView: View {
                 }
                 LabeledContent("每块字幕数量") {
                     HStack(spacing: 8) {
-                        TextField("500", value: $viewModel.translationChunkSize, format: .number.grouping(.never))
+                        TextField("250", value: $viewModel.translationChunkSize, format: .number.grouping(.never))
                             .frame(width: 90)
                             .multilineTextAlignment(.trailing)
                             .disabled(viewModel.isWorking)
-                        Text("条（1–1000，默认 500）")
+                        Text("条（1–1000，默认 250）")
                             .font(.caption)
                             .foregroundStyle(viewModel.chunkSizeIsValid ? Color.secondary : Color.red)
                     }
                 }
                 if viewModel.workflowMode == .automatic {
                     Label(
-                        "每块会通过一次 stdin 整批提交给 Codex；自动模式固定使用低延迟推理，不继承 Codex 的高推理设置。",
+                        "每块通过一次 stdin 整批提交；默认 Luna、关闭额外推理、250 条，更早保存首批结果。",
                         systemImage: "bolt.fill"
                     )
                     .font(.caption)
@@ -1060,10 +1109,18 @@ struct ContentView: View {
         }
     }
 
+    private var modelRefreshButton: some View {
+        Button(viewModel.isRefreshingModels ? "正在刷新模型…" : "刷新模型列表") {
+            Task { await viewModel.refreshModels() }
+        }
+        .disabled(viewModel.isRefreshingModels || viewModel.isWorking || viewModel.tools.codex == nil)
+        .help(AppInterfaceLanguage.localized("使用本机 Codex model/list；刷新无效时请更新 Sub Buddy 和 Codex。"))
+    }
+
     private var generationControls: some View {
         GroupBox("生成字幕") {
             VStack(alignment: .leading, spacing: 14) {
-                outputExplanation
+                if !viewModel.isWorking { outputExplanation }
                 if viewModel.isWorking {
                     if let fraction = viewModel.progress.phaseFraction,
                        viewModel.progress.phase == .extracting || viewModel.progress.phase == .ocr || viewModel.progress.phase == .muxing {
@@ -1350,6 +1407,15 @@ struct ContentView: View {
         panel.canChooseDirectories = true
         panel.canCreateDirectories = false
         if panel.runModal() == .OK, let url = panel.url { viewModel.loadFolder(url) }
+    }
+}
+
+private struct WorkspaceSettingStyle: LabeledContentStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        VStack(alignment: .leading, spacing: 7) {
+            configuration.label.font(.caption).foregroundStyle(.secondary)
+            configuration.content.frame(maxWidth: .infinity, alignment: .leading)
+        }
     }
 }
 

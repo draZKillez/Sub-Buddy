@@ -89,13 +89,14 @@ final class ChunkerValidatorTests: XCTestCase {
         XCTAssertEqual(chunks.flatMap(\.core).map(\.id), Array(1...130))
     }
 
-    func testDefaultChunkingUsesFiveHundredCoreCuesAndFiftyContextCues() {
+    func testDefaultChunkingUses250CoreCuesAndFiftyContextCues() {
         let chunks = TranslationChunker().chunks(for: cues(1_200))
-        XCTAssertEqual(chunks.map { $0.core.count }, [500, 500, 200])
-        XCTAssertEqual(chunks[0].nextContext.map(\.id), Array(501...550))
-        XCTAssertEqual(chunks[1].previousContext.map(\.id), Array(451...500))
-        XCTAssertEqual(chunks[1].nextContext.map(\.id), Array(1001...1050))
-        XCTAssertEqual(chunks[2].previousContext.map(\.id), Array(951...1000))
+        XCTAssertEqual(chunks.map { $0.core.count }, [250, 250, 250, 250, 200])
+        XCTAssertEqual(chunks[0].nextContext.map(\.id), Array(251...300))
+        XCTAssertEqual(chunks[1].previousContext.map(\.id), Array(201...250))
+        XCTAssertEqual(chunks[1].nextContext.map(\.id), Array(501...550))
+        XCTAssertEqual(chunks[2].previousContext.map(\.id), Array(451...500))
+        XCTAssertEqual(chunks.flatMap(\.core).map(\.id), Array(1...1200))
     }
 
     func testSubtitleOutputComposerSupportsPureChineseAndBilingualFormats() {

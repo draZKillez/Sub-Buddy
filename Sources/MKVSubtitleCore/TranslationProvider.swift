@@ -47,8 +47,10 @@ public struct TranslationPromptBuilder: Sendable {
 
         固定电影信息：
         原始片名：\(request.movie.originalTitle)
-        目标语言片名：\(chineseTitle)
+        参考片名（用户填写，可能不是目标语言，仅供辨认影片）：\(chineseTitle)
         年份：\(year)
+
+        \(TranslationLanguagePolicy.instructions(source: request.sourceLanguage, target: request.targetLanguage))
 
         硬性规则：
         1. 只翻译 CORE 中的字幕；BEFORE 和 AFTER 仅供理解，绝不能输出。
@@ -60,7 +62,7 @@ public struct TranslationPromptBuilder: Sendable {
         7. JSON 结构必须为 {"items":[{"id":1,"source":"原文","text":"译文"}],"glossary_updates":[{"source":"Name","target":"译名"}]}。source 必须与该 ID 的输入完全一致。
         8. 不要调用任何工具，不要读取本地文件；仅使用本提示中提供的内容。
         9. 每条 ID 是独立的播放时间窗口。即使一句话跨多条字幕，也绝不能合并、提前翻译下一条、把本条内容挪到前后 ID，或重新编号。允许片段句，只翻译该条原文覆盖的内容。
-        10. 例：ID 247="I'll explain this"、ID 248="as simply as I can."，应分别翻译为“我来解释一下”和“尽量说得简单些。”；不能把两条合成一句放进 ID 247，再把后一句挪入 ID 248。
+        10. 跨条句子的每个片段必须留在其原 ID，只翻译该片段；结合前后文确定含义，但绝不移动相邻条目的信息。
         11. 正文换行按 JSON 的单次转义编码，解码后必须是真实换行；不要输出字面反斜杠+n。生成每项前对照该 ID 的 source，确认 text 没有包含相邻 ID 的对白。
 
         当前术语表：
@@ -90,10 +92,16 @@ public struct TranslationPromptBuilder: Sendable {
         guard !cues.isEmpty else { return "（无）" }
         var lines: [String] = []
         var count = 0
+        let encoder = JSONEncoder()
+        // A slash need not be escaped in JSON. Models sometimes copy \/ from
+        // serialized input as a literal backslash + slash, corrupting </i> and
+        // names such as Leonard/Sheldon. Stable key order also avoids needless
+        // prompt differences across otherwise identical requests.
+        encoder.outputFormatting = [.withoutEscapingSlashes, .sortedKeys]
         for cue in cues {
             // A real JSON string avoids ambiguous literal \\n and quote escaping
             // in the old ad-hoc [ID] text format.
-            let encoded = (try? JSONEncoder().encode(TranslationSource(id: cue.id, source: cue.text))) ?? Data()
+            let encoded = (try? encoder.encode(TranslationSource(id: cue.id, source: cue.text))) ?? Data()
             let line = String(decoding: encoded, as: UTF8.self)
             if let maximumCharacters, !lines.isEmpty, count + line.count + 1 > maximumCharacters {
                 lines.append("（其余上下文因长度限制省略）")
@@ -106,7 +114,9 @@ public struct TranslationPromptBuilder: Sendable {
     }
 
     private func jsonString(_ value: [GlossaryEntry]) -> String {
-        guard let data = try? JSONEncoder().encode(value) else { return "[]" }
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.withoutEscapingSlashes, .sortedKeys]
+        guard let data = try? encoder.encode(value) else { return "[]" }
         return String(decoding: data, as: UTF8.self)
     }
 
