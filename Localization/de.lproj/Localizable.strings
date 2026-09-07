@@ -175,3 +175,28 @@
 "使用本机 Codex model/list；刷新无效时请更新 Sub Buddy 和 Codex。" = "Nutzt lokales Codex model/list. Bei Fehlern Sub Buddy und Codex aktualisieren.";
 "Codex 模型" = "Codex-Modell";
 "媒体工具" = "Medienwerkzeuge";
+/* 0.9.1 Beta: bounded concurrent translation */
+"条（1–1000，默认 200）" = "Einträge (1–1000, Standard 200)";
+"同时翻译批数" = "Gleichzeitige Stapel";
+"1 批（顺序）" = "1 Stapel (nacheinander)";
+"2 批（并发 Beta）" = "2 Stapel (parallel Beta)";
+"默认每批 200 条、最多两批并发。Schema 约束与本地校验后保存，仅补翻失败条目。遇到额度或服务限制将暂停，不绕过限制。" = "Standard: 200 Einträge pro Stapel, bis zu zwei gleichzeitig. Schema und lokale Prüfung; nur fehlerhafte Einträge werden erneut übersetzt. Kontingent- oder Dienstlimits pausieren den Auftrag und werden nicht umgangen.";
+"正在翻译批次：%@ · 最多同时 %d 批" = "Übersetzte Stapel: %@ · Bis zu %d gleichzeitig";
+"第 %d 批正在补翻无效条目，已通过的字幕不会重复翻译。" = "Stapel %d: Ungültige Einträge werden repariert. Bestätigte Untertitel werden nicht erneut übersetzt.";
+
+/* 0.9.1 beta 2: official Codex subagents */
+"官方子智能体（Beta）" = "Offizielle Subagenten (Beta)";
+"任务分配" = "Aufgabenverteilung";
+"主任务 150 条 + 子任务 300 条 × 2" = "Hauptagent: 150 + 2 Subagenten: je 300";
+"每轮最多 750 条；主任务负责委派并翻译 150 条，子任务各 300 条。子任务固定 low 推理，同一模型与账户；结果分别校验保存。仅补翻失败条目，不绕过额度限制。" = "Pro Runde bis zu 750: Hauptagent delegiert und übersetzt 150, Subagenten je 300. Gleiches Modell und Konto; Subagenten mit low. Ergebnisse werden einzeln geprüft und gespeichert. Nur Fehler werden nachbearbeitet; Limits bleiben bestehen.";
+"实验功能：委派有额外开销，不保证更快。为提高委派可靠性，主任务与子任务均固定 low 推理；普通分块仍可关闭额外推理。" = "Experimentell: Delegation kostet Zeit; schneller ist nicht garantiert. Haupt- und Subagenten nutzen low für zuverlässigere Delegation. Normale Stapel unterstützen weiterhin keine zusätzliche Denkzeit.";
+"low（主任务与子任务）" = "low (Haupt- und Subagenten)";
+
+/* 0.9.1: optional dynamic subagents */
+"子智能体协作" = "Subagenten-Zusammenarbeit";
+"适合长视频，消耗更多额度。" = "Für lange Videos; verbraucht mehr Kontingent.";
+"动态分块，最多两个子任务；短字幕直接翻译。" = "Dynamische Stapel, bis zu zwei Teilaufgaben; kurze Untertitel direkt übersetzen.";
+"自动使用最低可用推理强度；字幕格式错误最多再试两次。" = "Niedrigste verfügbare Denkstufe; bis zu zwei Wiederholungen bei Untertitelformatfehlern.";
+"2 批（并发）" = "2 Stapel (parallel)";
+"默认每批 200 条、顺序翻译；可选两批并发。校验后保存，仅补翻失败条目，最多再试两次。额度或服务限制时暂停。" = "Standard: 200 Einträge je Stapel, nacheinander; optional zwei parallel. Geprüfte Einträge speichern, nur fehlerhafte bis zu zweimal wiederholen. Bei Kontingent- oder Dienstlimits pausieren.";
+"模型列表已刷新；保留当前模型，子智能体模式使用最低可用推理强度。" = "Modelle aktualisiert; aktuelles Modell beibehalten. Unteragenten nutzen die niedrigste unterstützte Reasoning-Stufe.";

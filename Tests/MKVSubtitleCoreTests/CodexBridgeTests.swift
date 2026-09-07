@@ -94,6 +94,22 @@ final class CodexBridgeTests: XCTestCase {
         XCTAssertEqual(records.first?["id"] as? Int, 1)
         XCTAssertEqual(records.last?["source"] as? String, "Line 500")
         XCTAssertTrue(CodexTranslationProvider(bridge: bridge).requiresSourceEcho)
+        let schema = try XCTUnwrap(executor.schemaData)
+        XCTAssertNoThrow(try JSONSerialization.jsonObject(with: schema))
+        let schemaPath = try XCTUnwrap(executor.schemaPath)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: schemaPath), "Per-request schema must be removed after completion")
+    }
+
+    func testUnsupportedSchemaFlagDoesNotSilentlyFallback() async throws {
+        let executor = RecordingExecutor(result: .init(status: 2, standardOutput: "", standardError: "unexpected argument '--output-schema'"))
+        do {
+            _ = try await CodexBridge(codexURL: URL(fileURLWithPath: "/unused"), executor: executor)
+                .executeTranslation(prompt: "test", outputSchema: Data("{}".utf8))
+            XCTFail("Expected upgrade guidance")
+        } catch let error as AppError {
+            guard case .toolMissing = error else { return XCTFail("Wrong error: \(error)") }
+        }
+        XCTAssertEqual(executor.invocationCount, 1)
     }
 }
 
@@ -103,12 +119,18 @@ private final class RecordingExecutor: ProcessExecuting, @unchecked Sendable {
     var lastExecutable: URL?
     var lastArguments: [String] = []
     var lastInput: Data?
+    var schemaData: Data?
+    var schemaPath: String?
     init(result: ProcessResult) { self.result = result }
     func run(executable: URL, arguments: [String], standardInput: Data?) async throws -> ProcessResult {
         invocationCount += 1
         lastExecutable = executable
         lastArguments = arguments
         lastInput = standardInput
+        if let index = arguments.firstIndex(of: "--output-schema"), arguments.indices.contains(index + 1) {
+            schemaPath = arguments[index + 1]
+            schemaData = try Data(contentsOf: URL(fileURLWithPath: arguments[index + 1]))
+        }
         return result
     }
 }

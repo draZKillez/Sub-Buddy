@@ -28,7 +28,14 @@ public protocol StreamingProcessExecuting: ProcessExecuting {
     ) async throws -> ProcessResult
 }
 
-public final class ProcessExecutor: StreamingProcessExecuting, @unchecked Sendable {
+/// JSONL must be framed as bytes before UTF-8 decoding: a pipe read can split
+/// a Chinese character (or any multi-byte code point) in the middle.
+public protocol DataStreamingProcessExecuting: ProcessExecuting {
+    func run(executable: URL, arguments: [String], standardInput: Data?,
+             standardOutputDataHandler: @escaping @Sendable (Data) -> Void) async throws -> ProcessResult
+}
+
+public final class ProcessExecutor: StreamingProcessExecuting, DataStreamingProcessExecuting, @unchecked Sendable {
     public init() {}
 
     public func run(executable: URL, arguments: [String], standardInput: Data? = nil) async throws -> ProcessResult {
@@ -49,11 +56,18 @@ public final class ProcessExecutor: StreamingProcessExecuting, @unchecked Sendab
         )
     }
 
+    public func run(executable: URL, arguments: [String], standardInput: Data?,
+                    standardOutputDataHandler: @escaping @Sendable (Data) -> Void) async throws -> ProcessResult {
+        try await runInternal(executable: executable, arguments: arguments, standardInput: standardInput,
+                              standardOutputHandler: nil, standardOutputDataHandler: standardOutputDataHandler)
+    }
+
     private func runInternal(
         executable: URL,
         arguments: [String],
         standardInput: Data?,
-        standardOutputHandler: (@Sendable (String) -> Void)?
+        standardOutputHandler: (@Sendable (String) -> Void)?,
+        standardOutputDataHandler: (@Sendable (Data) -> Void)? = nil
     ) async throws -> ProcessResult {
         let process = Process()
         process.executableURL = executable
@@ -71,16 +85,21 @@ public final class ProcessExecutor: StreamingProcessExecuting, @unchecked Sendab
         // need the final JSONL/error tail to diagnose a failure.
         let outputBuffer = LockedDataBuffer(maximumBytes: 16 * 1_024 * 1_024)
         let errorBuffer = LockedDataBuffer(maximumBytes: 8 * 1_024 * 1_024)
-        outputPipe.fileHandleForReading.readabilityHandler = { handle in
-            let data = handle.availableData
-            guard !data.isEmpty else { return }
+        let outputReader = SerializedPipeReader { data in
             outputBuffer.append(data)
             standardOutputHandler?(String(decoding: data, as: UTF8.self))
+            standardOutputDataHandler?(data)
+        }
+        let errorReader = SerializedPipeReader { errorBuffer.append($0) }
+        outputPipe.fileHandleForReading.readabilityHandler = { handle in
+            outputReader.read(handle)
         }
         errorPipe.fileHandleForReading.readabilityHandler = { handle in
-            let data = handle.availableData
-            guard !data.isEmpty else { return }
-            errorBuffer.append(data)
+            errorReader.read(handle)
+        }
+        defer {
+            outputPipe.fileHandleForReading.readabilityHandler = nil
+            errorPipe.fileHandleForReading.readabilityHandler = nil
         }
 
         let cancellationState = ProcessCancellationState(process: process)
@@ -109,12 +128,8 @@ public final class ProcessExecutor: StreamingProcessExecuting, @unchecked Sendab
 
             outputPipe.fileHandleForReading.readabilityHandler = nil
             errorPipe.fileHandleForReading.readabilityHandler = nil
-            if let remainder = try? outputPipe.fileHandleForReading.readToEnd() {
-                outputBuffer.append(remainder)
-            }
-            if let remainder = try? errorPipe.fileHandleForReading.readToEnd() {
-                errorBuffer.append(remainder)
-            }
+            outputReader.finish(outputPipe.fileHandleForReading)
+            errorReader.finish(errorPipe.fileHandleForReading)
             try Task.checkCancellation()
             let stdout = String(decoding: outputBuffer.snapshot(), as: UTF8.self)
             let stderr = String(decoding: errorBuffer.snapshot(), as: UTF8.self)
@@ -122,6 +137,27 @@ public final class ProcessExecutor: StreamingProcessExecuting, @unchecked Sendab
         }, onCancel: {
             cancellationState.cancel()
         })
+    }
+}
+
+/// Serializes an in-flight readability callback with the final EOF drain.
+/// In particular, the final bytes must also reach streaming consumers.
+private final class SerializedPipeReader: @unchecked Sendable {
+    private let lock = NSLock()
+    private var finished = false
+    private let receive: @Sendable (Data) -> Void
+    init(receive: @escaping @Sendable (Data) -> Void) { self.receive = receive }
+    func read(_ handle: FileHandle) {
+        lock.lock(); defer { lock.unlock() }
+        guard !finished else { return }
+        let data = handle.availableData
+        if !data.isEmpty { receive(data) }
+    }
+    func finish(_ handle: FileHandle) {
+        lock.lock(); defer { lock.unlock() }
+        guard !finished else { return }
+        finished = true
+        if let data = try? handle.readToEnd(), !data.isEmpty { receive(data) }
     }
 }
 

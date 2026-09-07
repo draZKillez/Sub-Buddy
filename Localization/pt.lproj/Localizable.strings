@@ -175,3 +175,28 @@
 "使用本机 Codex model/list；刷新无效时请更新 Sub Buddy 和 Codex。" = "Usa model/list do Codex local. Se falhar, atualize Sub Buddy e Codex.";
 "Codex 模型" = "Modelo Codex";
 "媒体工具" = "Ferramentas de mídia";
+/* 0.9.1 Beta: bounded concurrent translation */
+"条（1–1000，默认 200）" = "entradas (1–1000, padrão 200)";
+"同时翻译批数" = "Lotes simultâneos";
+"1 批（顺序）" = "1 lote (sequencial)";
+"2 批（并发 Beta）" = "2 lotes (paralelo Beta)";
+"默认每批 200 条、最多两批并发。Schema 约束与本地校验后保存，仅补翻失败条目。遇到额度或服务限制将暂停，不绕过限制。" = "Padrão: 200 entradas por lote, até dois lotes simultâneos. Schema e validação local; apenas entradas com falha são repetidas. Limites de cota ou serviço pausam o trabalho e nunca são contornados.";
+"正在翻译批次：%@ · 最多同时 %d 批" = "Traduzindo lotes: %@ · Até %d de cada vez";
+"第 %d 批正在补翻无效条目，已通过的字幕不会重复翻译。" = "Lote %d: corrigindo entradas inválidas. Legendas aceitas não são traduzidas novamente.";
+
+/* 0.9.1 beta 2: official Codex subagents */
+"官方子智能体（Beta）" = "Subagentes oficiais (Beta)";
+"任务分配" = "Distribuição de tarefas";
+"主任务 150 条 + 子任务 300 条 × 2" = "Principal: 150 + 2 subagentes: 300 cada";
+"每轮最多 750 条；主任务负责委派并翻译 150 条，子任务各 300 条。子任务固定 low 推理，同一模型与账户；结果分别校验保存。仅补翻失败条目，不绕过额度限制。" = "Até 750 por rodada: o principal distribui e traduz 150; cada subagente, 300. Mesmo modelo e conta, esforço low nos subagentes. Validação e salvamento separados; apenas falhas são corrigidas, sem contornar limites.";
+"实验功能：委派有额外开销，不保证更快。为提高委派可靠性，主任务与子任务均固定 low 推理；普通分块仍可关闭额外推理。" = "Experimental: delegar tem custo e não garante maior velocidade. Principal e subagentes usam low para melhorar a delegação. Lotes comuns podem desativar o raciocínio extra.";
+"low（主任务与子任务）" = "low (principal e subagentes)";
+
+/* 0.9.1: optional dynamic subagents */
+"子智能体协作" = "Colaboração de subagentes";
+"适合长视频，消耗更多额度。" = "Para vídeos longos; consome mais cota.";
+"动态分块，最多两个子任务；短字幕直接翻译。" = "Lotes dinâmicos, até duas subtarefas; legendas curtas são traduzidas diretamente.";
+"自动使用最低可用推理强度；字幕格式错误最多再试两次。" = "Usa o menor esforço disponível; repete erros de formato até duas vezes.";
+"2 批（并发）" = "2 lotes (em paralelo)";
+"默认每批 200 条、顺序翻译；可选两批并发。校验后保存，仅补翻失败条目，最多再试两次。额度或服务限制时暂停。" = "Padrão: 200 entradas por lote, em sequência; dois lotes paralelos opcionais. Salvar entradas validadas e repetir apenas as falhas, até duas vezes. Pausar por limites de cota ou serviço.";
+"模型列表已刷新；保留当前模型，子智能体模式使用最低可用推理强度。" = "Modelos atualizados; modelo atual mantido. Subagentes usam o menor nível de raciocínio compatível.";

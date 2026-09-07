@@ -31,13 +31,36 @@ public struct TranslationValidator: Sendable {
             if requiresSourceEcho || item.source != nil {
                 guard item.source == source else { return nil }
             }
+            let text = Self.normalizeLineBreaks(item.text, source: source)
+            if requiresSourceEcho && !Self.preservesFormatting(text, source: source) { return nil }
             return TranslationItem(
                 id: item.id,
-                text: Self.normalizeLineBreaks(item.text, source: source),
+                text: text,
                 source: item.source
             )
         }
         return TranslationResponse(items: items, glossaryUpdates: response.glossaryUpdates)
+    }
+
+    private static let markup = try! NSRegularExpression(pattern: #"</?[^>\n]+>|\{\\[^}\n]*\}"#)
+
+    /// Do not silently accept lost styles or collapsed subtitle lines. This is
+    /// a structural check, not an assertion that the translation is correct.
+    static func preservesFormatting(_ text: String, source: String) -> Bool {
+        func tags(_ value: String) -> [String] {
+            markup.matches(in: value, range: NSRange(value.startIndex..., in: value)).map {
+                (value as NSString).substring(with: $0.range)
+            }
+        }
+        func lineCount(_ value: String) -> Int {
+            value.replacingOccurrences(of: "\r\n", with: "\n")
+                .replacingOccurrences(of: "\r", with: "\n")
+                .replacingOccurrences(of: #"\N"#, with: "\n")
+                .replacingOccurrences(of: #"\n"#, with: "\n")
+                .components(separatedBy: "\n")
+                .filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }.count
+        }
+        return tags(text) == tags(source) && lineCount(text) == lineCount(source)
     }
 
     /// Only repair double-escaped line breaks when the source really has line

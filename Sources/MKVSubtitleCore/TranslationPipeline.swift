@@ -16,6 +16,8 @@ public struct PipelineProgress: Equatable, Sendable {
     public let detail: String?
     public let completedItems: Int
     public let totalItems: Int
+    public let activeChunkIndexes: [Int]
+    public let repairingChunkIndex: Int?
 
     public init(
         phase: Phase,
@@ -24,7 +26,9 @@ public struct PipelineProgress: Equatable, Sendable {
         phaseFraction: Double? = nil,
         detail: String? = nil,
         completedItems: Int = 0,
-        totalItems: Int = 0
+        totalItems: Int = 0,
+        activeChunkIndexes: [Int] = [],
+        repairingChunkIndex: Int? = nil
     ) {
         self.phase = phase
         self.completedChunks = completedChunks
@@ -33,6 +37,8 @@ public struct PipelineProgress: Equatable, Sendable {
         self.detail = detail
         self.completedItems = completedItems
         self.totalItems = totalItems
+        self.activeChunkIndexes = activeChunkIndexes
+        self.repairingChunkIndex = repairingChunkIndex
     }
 }
 
@@ -60,6 +66,7 @@ public final class TranslationPipeline: @unchecked Sendable {
     private let ocrService: LocalPGSOCRService
     private let jobStore: JobStore
     private let fileManager: FileManager
+    private let maximumConcurrentChunks: Int
 
     public init(
         ffmpeg: FFmpegService,
@@ -69,7 +76,8 @@ public final class TranslationPipeline: @unchecked Sendable {
         chunker: TranslationChunker = .init(),
         ocrService: LocalPGSOCRService = .init(),
         jobStore: JobStore = JobStore(),
-        fileManager: FileManager = .default
+        fileManager: FileManager = .default,
+        maximumConcurrentChunks: Int = 1
     ) {
         self.ffmpeg = ffmpeg
         self.provider = provider
@@ -79,6 +87,7 @@ public final class TranslationPipeline: @unchecked Sendable {
         self.ocrService = ocrService
         self.jobStore = jobStore
         self.fileManager = fileManager
+        self.maximumConcurrentChunks = max(1, min(2, maximumConcurrentChunks))
     }
 
     public func run(
@@ -219,16 +228,17 @@ public final class TranslationPipeline: @unchecked Sendable {
                 record.translationContext != translationContext {
                 record = freshRecord
             }
-            let sourceIDs = Set(document.cues.map(\.id))
+            let sourceByID = Dictionary(document.cues.map { ($0.id, $0.text) }, uniquingKeysWith: { first, _ in first })
             record.translatedItems = record.translatedItems.filter {
-                sourceIDs.contains($0.key) && !$0.value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                guard let source = sourceByID[$0.key], !$0.value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
+                return !provider.requiresSourceEcho || TranslationValidator.preservesFormatting($0.value, source: source)
             }
             record.completedChunkIndexes = Set(chunks.compactMap { chunk in
                 guard chunk.core.allSatisfy({ record.translatedItems[$0.id] != nil }) else { return nil }
                 return chunk.index
             })
             try await jobStore.save(record, input: input)
-            var completedItemCount = document.cues.reduce(into: 0) { count, cue in
+            let completedItemCount = document.cues.reduce(into: 0) { count, cue in
                 if record.translatedItems[cue.id] != nil { count += 1 }
             }
             progress(PipelineProgress(
@@ -241,72 +251,11 @@ public final class TranslationPipeline: @unchecked Sendable {
                 completedItems: completedItemCount,
                 totalItems: document.cues.count
             ))
-            let engine = TranslationEngine(provider: provider)
-
-            for chunk in chunks {
-                try Task.checkCancellation()
-                if record.completedChunkIndexes.contains(chunk.index),
-                   chunk.core.allSatisfy({ record.translatedItems[$0.id] != nil }) {
-                    progress(translationProgress(
-                        chunk: chunk,
-                        record: record,
-                        completedItems: completedItemCount,
-                        totalItems: document.cues.count,
-                        totalChunks: chunks.count,
-                        detailPrefix: "已从保存进度恢复"
-                    ))
-                    continue
-                }
-                progress(translationProgress(
-                    chunk: chunk,
-                    record: record,
-                    completedItems: completedItemCount,
-                    totalItems: document.cues.count,
-                    totalChunks: chunks.count,
-                    detailPrefix: "本块剩余 \(chunk.core.filter { record.translatedItems[$0.id] == nil }.count) 条正提交给 \(provider.progressLabel)"
-                ))
-                _ = try await engine.translate(
-                    chunk: chunk,
-                    movie: movie,
-                    glossary: record.glossary,
-                    sourceLanguage: sourceLanguage,
-                    targetLanguage: targetLanguage,
-                    completedItems: record.translatedItems,
-                    onValidated: { partial in
-                        for item in partial.items {
-                            if record.translatedItems[item.id] == nil { completedItemCount += 1 }
-                            record.translatedItems[item.id] = item.text
-                        }
-                        record.glossary = TranslationGlossary.merge(record.glossary, partial.glossaryUpdates)
-                        if chunk.core.allSatisfy({ record.translatedItems[$0.id] != nil }) {
-                            record.completedChunkIndexes.insert(chunk.index)
-                        }
-                        try await self.jobStore.save(record, input: input)
-                        progress(self.translationProgress(
-                            chunk: chunk, record: record, completedItems: completedItemCount,
-                            totalItems: document.cues.count, totalChunks: chunks.count,
-                            detailPrefix: "已保存通过校验的字幕"
-                        ))
-                    }
-                ) {
-                    progress(self.translationProgress(
-                        chunk: chunk,
-                        record: record,
-                        completedItems: completedItemCount,
-                        totalItems: document.cues.count,
-                        totalChunks: chunks.count,
-                        detailPrefix: "正在分批修复缺失或原文对应错误的字幕；已保存有效条目"
-                    ))
-                }
-                progress(translationProgress(
-                    chunk: chunk,
-                    record: record,
-                    completedItems: completedItemCount,
-                    totalItems: document.cues.count,
-                    totalChunks: chunks.count,
-                    detailPrefix: "本块翻译完成"
-                ))
-            }
+            record = try await TranslationBatchRunner(provider: provider, concurrency: maximumConcurrentChunks).run(
+                chunks: chunks, record: record, movie: movie,
+                sourceLanguage: sourceLanguage, targetLanguage: targetLanguage,
+                store: jobStore, input: input, progress: progress
+            )
 
             let composer = SubtitleOutputComposer()
             for index in document.cues.indices {
@@ -401,26 +350,6 @@ public final class TranslationPipeline: @unchecked Sendable {
         } catch is CancellationError {
             throw AppError.cancelled
         }
-    }
-
-    private func translationProgress(
-        chunk: TranslationChunk,
-        record: TranslationJobRecord,
-        completedItems: Int,
-        totalItems: Int,
-        totalChunks: Int,
-        detailPrefix: String
-    ) -> PipelineProgress {
-        let firstID = chunk.core.first?.id ?? 0
-        let lastID = chunk.core.last?.id ?? 0
-        return PipelineProgress(
-            phase: .translating,
-            completedChunks: record.completedChunkIndexes.count,
-            totalChunks: totalChunks,
-            detail: "\(detailPrefix) · 第 \(chunk.index + 1)/\(totalChunks) 块 · ID \(firstID)–\(lastID) · \(chunk.core.count) 条",
-            completedItems: completedItems,
-            totalItems: totalItems
-        )
     }
 
     private static func srtText(_ text: String, sourceFormat: SubtitleFormat) -> String {

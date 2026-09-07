@@ -300,6 +300,19 @@ public struct SubtitleTrack: Codable, Equatable, Sendable, Identifiable {
         SubtitleLanguage.english.matches(language)
     }
 
+    /// Prefer full-dialogue tracks before forced-only signs/foreign dialogue.
+    /// Manual selections are never passed through this automatic fallback.
+    public static func preferred(in tracks: [SubtitleTrack], language: SubtitleLanguage) -> SubtitleTrack? {
+        let full = tracks.filter { !$0.isForced }
+        return full.first { $0.isText && $0.matches(language) }
+            ?? full.first { $0.supportsLocalOCR && $0.matches(language) }
+            ?? full.first { $0.isText }
+            ?? full.first { $0.supportsLocalOCR }
+            ?? tracks.first { $0.isText && $0.matches(language) }
+            ?? tracks.first { $0.supportsLocalOCR && $0.matches(language) }
+            ?? tracks.first { $0.isProcessable }
+    }
+
     public static func titleSuggestsSDH(_ title: String) -> Bool {
         guard let expression = sdhTitleExpression else { return false }
         return expression.firstMatch(

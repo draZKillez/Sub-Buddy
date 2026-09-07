@@ -1,0 +1,9 @@
+# 0.9.1 validation
+
+- Unit coverage includes small inputs, 2000-cue balanced allocation, character limits, adjacent context, two-slot rolling dispatch, out-of-order and duplicate child events, ownership checks, UTF-8 framing, bounded format repair, quota cancellation and checkpoint failures.
+- Official JSONL collaboration fields were checked against `openai/codex`, `codex-rs/exec/src/exec_events.rs`: `spawn_agent`, `wait`, `close_agent`, `receiver_thread_ids`, and `agents_states`. The coordinator output schema constrains only its status response; child translations are validated locally, not claimed to inherit the coordinator schema.
+- Local unit regression: 161 tests, 155 passed and 6 opt-in tests skipped. Release builds completed for both arm64 and x86_64, macOS 14 or newer. The Universal app passed code-signature verification, and its DMG passed `hdiutil verify`. GitHub Actions repeats tests before packaging and signing the update feed.
+- The first live attempt was blocked by development permissions. After access was restored, a synthetic 601-cue Codex test ran for 156.6 seconds: two children returned results, completed slots closed, and two more tasks were spawned. The service then explicitly reported its usage limit, and the app stopped without retrying the quota error. This establishes that real rolling dispatch advanced beyond the first pair, but is NOT a completed end-to-end live test or a speed benchmark. No quota reset, alternate account or fallback model was used.
+- Earlier beta timings do not establish the speed or quota use of the new rolling queue. Collaboration remains off by default; performance depends on the account, model, CLI version and service load.
+
+本次已覆盖动态队列、格式校验与重试、取消及保存失败的本地测试。恢复权限后，真实 Codex 试跑完成首对子任务并继续派发下一对，随后服务明确返回额度限制，程序停止。该试跑未完整完成，不能作为翻译速度基准；协作模式默认关闭，不承诺固定加速比例。

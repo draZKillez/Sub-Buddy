@@ -175,3 +175,28 @@
 "使用本机 Codex model/list；刷新无效时请更新 Sub Buddy 和 Codex。" = "Utilise model/list de Codex local. En cas d’échec, mettez à jour Sub Buddy et Codex.";
 "Codex 模型" = "Modèle Codex";
 "媒体工具" = "Outils multimédias";
+/* 0.9.1 Beta: bounded concurrent translation */
+"条（1–1000，默认 200）" = "entrées (1–1000, 200 par défaut)";
+"同时翻译批数" = "Lots simultanés";
+"1 批（顺序）" = "1 lot (séquentiel)";
+"2 批（并发 Beta）" = "2 lots (parallèle Beta)";
+"默认每批 200 条、最多两批并发。Schema 约束与本地校验后保存，仅补翻失败条目。遇到额度或服务限制将暂停，不绕过限制。" = "Par défaut : 200 entrées par lot, deux lots simultanés au maximum. Schéma et validation locale ; seules les entrées échouées sont reprises. Les limites de quota ou de service suspendent le travail et ne sont jamais contournées.";
+"正在翻译批次：%@ · 最多同时 %d 批" = "Traduction des lots : %@ · Jusqu’à %d à la fois";
+"第 %d 批正在补翻无效条目，已通过的字幕不会重复翻译。" = "Lot %d : correction des entrées invalides. Les sous-titres validés ne sont pas retraduits.";
+
+/* 0.9.1 beta 2: official Codex subagents */
+"官方子智能体（Beta）" = "Sous-agents officiels (bêta)";
+"任务分配" = "Répartition des tâches";
+"主任务 150 条 + 子任务 300 条 × 2" = "Principal : 150 + 2 sous-agents : 300 chacun";
+"每轮最多 750 条；主任务负责委派并翻译 150 条，子任务各 300 条。子任务固定 low 推理，同一模型与账户；结果分别校验保存。仅补翻失败条目，不绕过额度限制。" = "750 entrées maximum par cycle : le principal répartit et traduit 150, chaque sous-agent 300. Même modèle et compte, effort low pour les sous-agents. Validation et sauvegarde séparées ; reprise des seuls échecs, sans contourner les limites.";
+"实验功能：委派有额外开销，不保证更快。为提高委派可靠性，主任务与子任务均固定 low 推理；普通分块仍可关闭额外推理。" = "Expérimental : la délégation a un coût sans garantie de vitesse. Principal et sous-agents utilisent low pour une délégation plus fiable. Les lots ordinaires peuvent désactiver l’effort supplémentaire.";
+"low（主任务与子任务）" = "low (principal et sous-agents)";
+
+/* 0.9.1: optional dynamic subagents */
+"子智能体协作" = "Collaboration de sous-agents";
+"适合长视频，消耗更多额度。" = "Adapté aux longues vidéos ; consomme plus de quota.";
+"动态分块，最多两个子任务；短字幕直接翻译。" = "Lots dynamiques, deux sous-tâches maximum ; traduction directe des sous-titres courts.";
+"自动使用最低可用推理强度；字幕格式错误最多再试两次。" = "Effort de raisonnement minimal disponible ; deux nouvelles tentatives maximum en cas d’erreur de format.";
+"2 批（并发）" = "2 lots (en parallèle)";
+"默认每批 200 条、顺序翻译；可选两批并发。校验后保存，仅补翻失败条目，最多再试两次。额度或服务限制时暂停。" = "Par défaut : 200 répliques par lot, en série ; deux lots parallèles en option. Enregistrer les éléments validés et réessayer seulement les échecs, deux fois maximum. Pause en cas de limite de quota ou de service.";
+"模型列表已刷新；保留当前模型，子智能体模式使用最低可用推理强度。" = "Modèles actualisés ; modèle actuel conservé. Les sous-agents utilisent le niveau de raisonnement minimal pris en charge.";

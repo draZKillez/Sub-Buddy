@@ -28,18 +28,26 @@ public struct TranslationRequest: Equatable, Sendable {
 public protocol TranslationProvider: Sendable {
     var progressLabel: String { get }
     var requiresSourceEcho: Bool { get }
+    var maximumConcurrentBatches: Int { get }
     func translate(_ request: TranslationRequest) async throws -> String
 }
 
 public extension TranslationProvider {
     var progressLabel: String { "翻译服务" }
     var requiresSourceEcho: Bool { false }
+    var maximumConcurrentBatches: Int { 2 }
+}
+
+/// The callback is sequential and awaited, not dispatched from a pipe thread.
+/// A checkpoint/storage error must cancel the running provider session.
+public protocol StreamingTranslationProvider: TranslationProvider {
+    func translate(_ request: TranslationRequest, onPartial: (String) async throws -> Void) async throws -> String
 }
 
 public struct TranslationPromptBuilder: Sendable {
     public init() {}
 
-    public func build(_ request: TranslationRequest) -> String {
+    public func build(_ request: TranslationRequest, coordinating: Bool = false) -> String {
         let year = request.movie.year.map(String.init) ?? "未知"
         let chineseTitle = request.movie.chineseTitle.isEmpty ? "未填写（可选）" : request.movie.chineseTitle
         var prompt = """
@@ -60,7 +68,7 @@ public struct TranslationPromptBuilder: Sendable {
         5. 保留原字幕换行、斜体、HTML 标签、ASS 标签、声音描述、歌词及括号内容。
         6. 片名、人名、组织、地点及其他专有名词必须跨块统一。
         7. JSON 结构必须为 {"items":[{"id":1,"source":"原文","text":"译文"}],"glossary_updates":[{"source":"Name","target":"译名"}]}。source 必须与该 ID 的输入完全一致。
-        8. 不要调用任何工具，不要读取本地文件；仅使用本提示中提供的内容。
+        8. \(coordinating ? "你必须先使用官方 spawn_agent 委派所有子任务，再翻译自己的 CORE，然后 wait 收集子任务完成状态；不得使用其他工具或读取文件。" : "不要调用任何工具，不要读取本地文件；仅使用本提示中提供的内容。")
         9. 每条 ID 是独立的播放时间窗口。即使一句话跨多条字幕，也绝不能合并、提前翻译下一条、把本条内容挪到前后 ID，或重新编号。允许片段句，只翻译该条原文覆盖的内容。
         10. 跨条句子的每个片段必须留在其原 ID，只翻译该片段；结合前后文确定含义，但绝不移动相邻条目的信息。
         11. 正文换行按 JSON 的单次转义编码，解码后必须是真实换行；不要输出字面反斜杠+n。生成每项前对照该 ID 的 source，确认 text 没有包含相邻 ID 的对白。
@@ -81,7 +89,7 @@ public struct TranslationPromptBuilder: Sendable {
             prompt += """
 
 
-            以下是上次输出，仅供参考。只输出当前 CORE 列出的 ID，修正原文与译文对应关系；不要输出已完成 ID，也不要因参考输出而改变当前 CORE：
+            以下是修复参考（诊断或上次输出）。只输出当前 CORE 列出的 ID，修正格式及原文与译文对应关系；不要输出已完成 ID，也不要因参考内容而改变当前 CORE：
             \(String(invalid.prefix(200_000)))
             """
         }
@@ -144,7 +152,7 @@ public struct TranslationEngine: Sendable {
         targetLanguage: SubtitleLanguage = .simplifiedChinese,
         completedItems: [Int: String] = [:],
         onValidated: (TranslationResponse) async throws -> Void = { _ in },
-        onRepair: () -> Void = {}
+        onRepair: () async -> Void = {}
     ) async throws -> TranslationResponse {
         let expectedIDs = chunk.core.map(\.id)
         guard Set(expectedIDs).count == expectedIDs.count else {
@@ -164,12 +172,12 @@ public struct TranslationEngine: Sendable {
             try Task.checkCancellation()
             let pending = chunk.core.filter { byID[$0.id] == nil }
             if pending.isEmpty { break }
-            if round > 0 { onRepair() }
+            if round > 0 { await onRepair() }
             let batches: [[SubtitleCue]]
             if round == 0 {
                 batches = [pending]
             } else {
-                let limit = round == 1 ? 250 : 125
+                let limit = round == 1 ? 100 : 50
                 batches = TranslationChunker(configuration: .init(
                     targetCoreCount: limit, maximumCoreCount: limit,
                     maximumCoreCharacters: round == 1 ? 30_000 : 15_000,
@@ -182,10 +190,33 @@ public struct TranslationEngine: Sendable {
                     chunk: recoveryChunk(for: cues, in: chunk),
                     movie: movie,
                     glossary: TranslationGlossary.merge(glossary, updates),
+                    previousInvalidOutput: round > 0 ? "Only the remaining IDs are requested. Check exact source binding, tags, line breaks, and nonempty text. Do not repeat already accepted items." : nil,
                     sourceLanguage: sourceLanguage,
                     targetLanguage: targetLanguage
                 )
-                let raw = try await provider.translate(request)
+                let raw: String
+                var checkpointFailed = false
+                do {
+                if let streaming = provider as? StreamingTranslationProvider {
+                    raw = try await streaming.translate(request) { partialJSON in
+                        guard let partial = try? validator.alignedPartial(rawJSON: partialJSON,
+                            expectedCues: cues, requiresSourceEcho: provider.requiresSourceEcho) else { return }
+                        let fresh = partial.items.filter { byID[$0.id] == nil }
+                        guard !fresh.isEmpty else { return }
+                        for item in fresh { byID[item.id] = item }
+                        updates = TranslationGlossary.merge(updates, partial.glossaryUpdates)
+                        do {
+                            try await onValidated(TranslationResponse(items: fresh, glossaryUpdates: partial.glossaryUpdates))
+                        } catch { checkpointFailed = true; throw error }
+                    }
+                } else {
+                    raw = try await provider.translate(request)
+                }
+                } catch let error as AppError {
+                    guard !checkpointFailed, case .invalidTranslation = error else { throw error }
+                    lastFailure = error.localizedDescription
+                    continue
+                }
                 try Task.checkCancellation()
                 let partial: TranslationResponse
                 do {

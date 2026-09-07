@@ -963,7 +963,7 @@ struct ContentView: View {
                         .frame(width: 200)
                     }
                     .disabled(viewModel.isWorking || viewModel.manualSession != nil)
-                    .onChange(of: viewModel.sourceLanguage) { _, _ in viewModel.languageSettingsDidChange() }
+                    .onChange(of: viewModel.sourceLanguage) { _, _ in viewModel.languageSettingsDidChange(selectSourceTrack: true) }
                     .onChange(of: viewModel.targetLanguage) { _, _ in viewModel.languageSettingsDidChange() }
                 }
                 if !viewModel.languagePairIsValid {
@@ -1003,6 +1003,9 @@ struct ContentView: View {
                         }
                     }
                     LabeledContent("推理强度") {
+                        if viewModel.subagentModeIsActive {
+                            Text(viewModel.minimumSubagentEffort?.rawValue ?? "—")
+                        } else {
                         Picker("推理强度", selection: $viewModel.codexReasoningEffort) {
                             ForEach(Array(Set(viewModel.availableReasoningEfforts + [viewModel.codexReasoningEffort])).sorted {
                                 CodexReasoningEffort.allCases.firstIndex(of: $0)! < CodexReasoningEffort.allCases.firstIndex(of: $1)!
@@ -1013,6 +1016,7 @@ struct ContentView: View {
                         .labelsHidden().frame(width: 330)
                         .disabled(viewModel.isWorking)
                         .onChange(of: viewModel.codexReasoningEffort) { _, _ in viewModel.codexModelDidChange() }
+                        }
                     }
                     Text("较高推理强度可能增加耗时和额度消耗，不保证译文一定更好。刷新列表无效时，建议更新 Sub Buddy 和 Codex。")
                         .font(.caption).foregroundStyle(.secondary)
@@ -1069,24 +1073,49 @@ struct ContentView: View {
                         viewModel.outputSettingsDidChange()
                     }
                 }
+                if viewModel.workflowMode == .automatic {
+                    Toggle("子智能体协作", isOn: $viewModel.useCodexSubagents)
+                        .disabled(viewModel.isWorking)
+                        .onChange(of: viewModel.useCodexSubagents) { _, _ in viewModel.subagentModeDidChange() }
+                    Text("适合长视频，消耗更多额度。")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+                if viewModel.subagentModeIsActive {
+                    LabeledContent("任务分配") {
+                        Text("动态分块，最多两个子任务；短字幕直接翻译。")
+                    }
+                    Text("自动使用最低可用推理强度；字幕格式错误最多再试两次。")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                } else {
                 LabeledContent("每块字幕数量") {
                     HStack(spacing: 8) {
-                        TextField("250", value: $viewModel.translationChunkSize, format: .number.grouping(.never))
+                        TextField("200", value: $viewModel.translationChunkSize, format: .number.grouping(.never))
                             .frame(width: 90)
                             .multilineTextAlignment(.trailing)
                             .disabled(viewModel.isWorking)
-                        Text("条（1–1000，默认 250）")
+                        Text("条（1–1000，默认 200）")
                             .font(.caption)
                             .foregroundStyle(viewModel.chunkSizeIsValid ? Color.secondary : Color.red)
                     }
                 }
                 if viewModel.workflowMode == .automatic {
+                    LabeledContent("同时翻译批数") {
+                        Picker("同时翻译批数", selection: $viewModel.translationConcurrency) {
+                            Text("1 批（顺序）").tag(1)
+                            Text("2 批（并发）").tag(2)
+                        }
+                        .labelsHidden()
+                        .pickerStyle(.segmented)
+                        .disabled(viewModel.isWorking)
+                    }
                     Label(
-                        "每块通过一次 stdin 整批提交；默认 Luna、关闭额外推理、250 条，更早保存首批结果。",
+                        "默认每批 200 条、顺序翻译；可选两批并发。校验后保存，仅补翻失败条目，最多再试两次。额度或服务限制时暂停。",
                         systemImage: "bolt.fill"
                     )
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                }
                 }
                 if viewModel.workflowMode == .appleLocal {
                     Label(
@@ -1137,6 +1166,22 @@ struct ContentView: View {
                         VStack(alignment: .leading, spacing: 4) {
                             Text(progressTitle)
                                 .font(.headline)
+                            if !viewModel.progress.activeChunkIndexes.isEmpty {
+                                Text(AppInterfaceLanguage.localizedFormat(
+                                    "正在翻译批次：%@ · 最多同时 %d 批",
+                                    viewModel.progress.activeChunkIndexes.map { String($0 + 1) }.joined(separator: ", "),
+                                    viewModel.effectiveTranslationConcurrency
+                                ))
+                                .font(.callout)
+                                if viewModel.subagentModeIsActive {
+                                    Text("动态分块，最多两个子任务；短字幕直接翻译。")
+                                        .font(.caption)
+                                }
+                            }
+                            if let repairing = viewModel.progress.repairingChunkIndex {
+                                Text(AppInterfaceLanguage.localizedFormat("第 %d 批正在补翻无效条目，已通过的字幕不会重复翻译。", repairing + 1))
+                                    .font(.caption)
+                            }
                             if let detail = viewModel.progress.detail, !detail.isEmpty {
                                 Text(detail)
                                     .font(.callout)

@@ -66,9 +66,26 @@ public struct SubtitleWriter: Sendable {
     }
 
     public func write(_ document: SubtitleDocument, to url: URL, overwrite: Bool = true) throws {
+        guard !document.cues.isEmpty else { throw AppError.parsingFailed("字幕正文为空，无法导出。") }
         let text = try string(from: document)
         try Task.checkCancellation()
         let data = Data(text.utf8)
+        // Verify before touching an existing destination. The exported SRT must
+        // round-trip every ID, timestamp and nonempty body, not merely exist.
+        if document.format == .srt {
+            let parsed = try SubtitleParser().parse(data: data, format: .srt)
+            guard parsed.cues.count == document.cues.count else {
+                throw AppError.parsingFailed("导出字幕数量校验失败。")
+            }
+            for (source, result) in zip(document.cues, parsed.cues) {
+                guard source.id == result.id,
+                      source.startMilliseconds == result.startMilliseconds,
+                      source.endMilliseconds == result.endMilliseconds,
+                      try blockText(source).trimmingCharacters(in: .whitespacesAndNewlines) == result.text.trimmingCharacters(in: .whitespacesAndNewlines) else {
+                    throw AppError.parsingFailed("导出字幕 ID \(source.id) 的时间轴或正文校验失败。")
+                }
+            }
+        }
         if overwrite {
             try data.write(to: url, options: .atomic)
             return

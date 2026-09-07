@@ -2,6 +2,14 @@ import XCTest
 @testable import MKVSubtitleCore
 
 final class ProcessExecutorTests: XCTestCase {
+    func testByteStreamIncludesUTF8AndFinalEOFTailExactlyOnce() async throws {
+        let bytes = CapturedProcessBytes()
+        let payload = String(repeating: "你好🌍日本語\n", count: 5_000) + "最后一行"
+        let result = try await ProcessExecutor().run(executable: URL(fileURLWithPath: "/bin/cat"),
+            arguments: [], standardInput: Data(payload.utf8), standardOutputDataHandler: { bytes.append($0) })
+        XCTAssertEqual(bytes.snapshot(), Data(payload.utf8))
+        XCTAssertEqual(result.standardOutput, payload)
+    }
     func testRunsWithoutShellAndCapturesStdoutAndStderr() async throws {
         let result = try await ProcessExecutor().run(
             executable: URL(fileURLWithPath: "/usr/bin/python3"),
@@ -82,4 +90,11 @@ final class ProcessExecutorTests: XCTestCase {
             XCTFail("Expected CancellationError, got \(error)")
         }
     }
+}
+
+private final class CapturedProcessBytes: @unchecked Sendable {
+    let lock = NSLock()
+    var data = Data()
+    func append(_ chunk: Data) { lock.lock(); defer { lock.unlock() }; data.append(chunk) }
+    func snapshot() -> Data { lock.lock(); defer { lock.unlock() }; return data }
 }

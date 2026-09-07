@@ -89,13 +89,13 @@ final class ChunkerValidatorTests: XCTestCase {
         XCTAssertEqual(chunks.flatMap(\.core).map(\.id), Array(1...130))
     }
 
-    func testDefaultChunkingUses250CoreCuesAndFiftyContextCues() {
+    func testDefaultChunkingUses200CoreCuesAndFiftyContextCues() {
         let chunks = TranslationChunker().chunks(for: cues(1_200))
-        XCTAssertEqual(chunks.map { $0.core.count }, [250, 250, 250, 250, 200])
-        XCTAssertEqual(chunks[0].nextContext.map(\.id), Array(251...300))
-        XCTAssertEqual(chunks[1].previousContext.map(\.id), Array(201...250))
-        XCTAssertEqual(chunks[1].nextContext.map(\.id), Array(501...550))
-        XCTAssertEqual(chunks[2].previousContext.map(\.id), Array(451...500))
+        XCTAssertEqual(chunks.map { $0.core.count }, [200, 200, 200, 200, 200, 200])
+        XCTAssertEqual(chunks[0].nextContext.map(\.id), Array(201...250))
+        XCTAssertEqual(chunks[1].previousContext.map(\.id), Array(151...200))
+        XCTAssertEqual(chunks[1].nextContext.map(\.id), Array(401...450))
+        XCTAssertEqual(chunks[2].previousContext.map(\.id), Array(351...400))
         XCTAssertEqual(chunks.flatMap(\.core).map(\.id), Array(1...1200))
     }
 
@@ -175,7 +175,7 @@ final class ChunkerValidatorTests: XCTestCase {
         XCTAssertEqual(result.items.map(\.id), Array(1...500))
         let requestedIDs = await provider.requestedIDs()
         XCTAssertEqual(requestedIDs, [
-            Array(1...500), Array(1...250), Array(251...500)
+            Array(1...500), Array(1...100), Array(101...200), Array(201...300), Array(301...400), Array(401...500)
         ])
     }
 
@@ -189,9 +189,9 @@ final class ChunkerValidatorTests: XCTestCase {
         )
         XCTAssertEqual(result.items.map(\.id), Array(1...500))
         let requestedIDs = await provider.requestedIDs()
-        XCTAssertEqual(requestedIDs.map(\.count), [500, 250, 249])
-        XCTAssertEqual(requestedIDs[1], Array(2...251))
-        XCTAssertEqual(requestedIDs[2], Array(252...500))
+        XCTAssertEqual(requestedIDs.map(\.count), [500, 100, 100, 100, 100, 99])
+        XCTAssertEqual(requestedIDs[1], Array(2...101))
+        XCTAssertEqual(requestedIDs.dropFirst().flatMap { $0 }, Array(2...500))
     }
 
     func testPartialRecoveryResponseRetriesOnlyItsRemainingIDs() async throws {

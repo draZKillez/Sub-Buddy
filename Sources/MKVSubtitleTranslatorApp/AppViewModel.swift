@@ -111,7 +111,12 @@ final class AppViewModel: ObservableObject {
     @Published var sourceLanguage: SubtitleLanguage = .english
     @Published var targetLanguage: SubtitleLanguage = .simplifiedChinese
     @Published var deliveryMode: DeliveryMode = .sidecarSRT
-    @Published var translationChunkSize = 250
+    @Published var translationChunkSize = 200
+    @Published var translationConcurrency = 1
+    @Published var useCodexSubagents = false
+    var subagentModeIsActive: Bool { workflowMode == .automatic && useCodexSubagents }
+    var effectiveTranslationChunkSize: Int { subagentModeIsActive ? CodexSubtitleTaskPlanner.maximumSessionCues : translationChunkSize }
+    var effectiveTranslationConcurrency: Int { workflowMode == .automatic && !useCodexSubagents ? translationConcurrency : 1 }
     @Published var codexModel: CodexModel = .luna
     @Published var codexReasoningEffort: CodexReasoningEffort = .none
     @Published private(set) var codexModels: [CodexModelCapability] = []
@@ -280,7 +285,7 @@ final class AppViewModel: ObservableObject {
     }
 
     var chunkSizeIsValid: Bool {
-        (1...1_000).contains(translationChunkSize)
+        subagentModeIsActive || (1...1_000).contains(translationChunkSize)
     }
 
     var languagePairIsValid: Bool { sourceLanguage != targetLanguage }
@@ -336,6 +341,9 @@ final class AppViewModel: ObservableObject {
     }
 
     var overallEstimatedRemaining: EstimatedDurationRange? {
+        // Existing timing history measures independent CLI batches, not a
+        // coordinator plus children. Do not display a falsely precise ETA.
+        if subagentModeIsActive { return nil }
         if workflowMode == .manual, let manualSession {
             return overallTimingEstimator.estimatedManualRemaining(
                 remainingChunks: manualSession.totalChunkCount - manualSession.completedChunkCount,
@@ -389,12 +397,12 @@ final class AppViewModel: ObservableObject {
         completedDeliveryMode = nil
     }
 
-    func languageSettingsDidChange() {
+    func languageSettingsDidChange(selectSourceTrack: Bool = false) {
         guard !isWorking else { return }
         outputSettingsDidChange()
         resetManualSession()
         abandonJobTiming()
-        if let mediaInfo {
+        if selectSourceTrack, let mediaInfo {
             selectedTrackIndex = preferredTrack(in: mediaInfo)?.streamIndex
         }
         Task { await refreshAppleTranslationAvailability() }
@@ -471,6 +479,7 @@ final class AppViewModel: ObservableObject {
 
     func codexModelDidChange() {
         guard !isWorking else { return }
+        if subagentModeIsActive, let effort = minimumSubagentEffort { codexReasoningEffort = effort }
         bridge = CodexBridge(codexURL: tools.codex, model: codexModel.rawValue, reasoningEffort: codexReasoningEffort)
         errorMessage = nil
         if codexStatus == .modelUnavailable || codexStatus == .quotaOrServiceUnavailable {
@@ -488,9 +497,23 @@ final class AppViewModel: ObservableObject {
         codexModels.first(where: { $0.model == codexModel.rawValue })?.translationEfforts ?? [.none]
     }
 
+    var minimumSubagentEffort: CodexReasoningEffort? {
+        let supported = codexModels.first(where: { $0.model == codexModel.rawValue })?.efforts
+            ?? (CodexModel.allCases.contains(codexModel) ? [.low] : [])
+        return CodexTranslationReasoningPolicy.effort(subagents: true, supported: supported)
+    }
+
+    func subagentModeDidChange() {
+        guard !isWorking else { return }
+        codexReasoningEffort = useCodexSubagents ? (minimumSubagentEffort ?? .low) : .none
+        codexModelDidChange()
+    }
+
     var codexSelectionIsValid: Bool {
         (codexModels.isEmpty || codexModels.contains(where: { $0.model == codexModel.rawValue })) &&
-        availableReasoningEfforts.contains(codexReasoningEffort)
+        (subagentModeIsActive
+            ? minimumSubagentEffort != nil
+            : availableReasoningEfforts.contains(codexReasoningEffort))
     }
 
     func refreshModels() async {
@@ -502,7 +525,8 @@ final class AppViewModel: ObservableObject {
             let models = try await CodexModelCatalog().refresh(executable: executable)
             guard executable == tools.codex else { return }
             codexModels = models
-            modelRefreshMessage = AppInterfaceLanguage.localized("模型列表已刷新；不会自动更换当前模型或推理强度。")
+            if subagentModeIsActive { subagentModeDidChange() }
+            modelRefreshMessage = AppInterfaceLanguage.localized("模型列表已刷新；保留当前模型，子智能体模式使用最低可用推理强度。")
             await refreshCodexStatus()
         } catch {
             modelRefreshMessage = AppInterfaceLanguage.localized("模型列表刷新失败。请检查连接和登录状态；若仍无效，请更新 Sub Buddy 和 Codex 后重试。")
@@ -733,7 +757,7 @@ final class AppViewModel: ObservableObject {
         let requestedSourceLanguage = sourceLanguage
         let requestedTargetLanguage = targetLanguage
         let overwrite = batchExistingFilePolicy == .overwrite
-        let chunkSize = translationChunkSize
+        let chunkSize = effectiveTranslationChunkSize
         let workflowGeneration = UUID()
         translationGeneration = workflowGeneration
         translationTask = Task {
@@ -780,7 +804,8 @@ final class AppViewModel: ObservableObject {
                             maximumCoreCount: chunkSize,
                             maximumCoreCharacters: max(80_000, chunkSize * 300),
                             contextCount: 50
-                        ))
+                        )),
+                        maximumConcurrentChunks: effectiveTranslationConcurrency
                     )
                     let result = try await pipeline.run(
                         input: input,
@@ -1767,7 +1792,7 @@ final class AppViewModel: ObservableObject {
         outputURL = nil
         completedOutputMode = nil
         completedDeliveryMode = nil
-        let chunkSize = translationChunkSize
+        let chunkSize = effectiveTranslationChunkSize
         let pipeline = TranslationPipeline(
             ffmpeg: FFmpegService(ffmpegURL: tools.ffmpeg, mkvextractURL: tools.mkvextract, bitmapSubtitleDecoderURL: tools.bitmapSubtitleDecoder),
             provider: provider,
@@ -1776,7 +1801,8 @@ final class AppViewModel: ObservableObject {
                 maximumCoreCount: chunkSize,
                 maximumCoreCharacters: max(80_000, chunkSize * 300),
                 contextCount: 50
-            ))
+            )),
+            maximumConcurrentChunks: effectiveTranslationConcurrency
         )
         let movieContext = movie
         let requestedOutputMode = subtitleOutputMode
@@ -1867,6 +1893,13 @@ final class AppViewModel: ObservableObject {
                         guidance: "请先安装 ChatGPT/Codex，再点击“连接 ChatGPT”。"
                     )
                     : AppError.codexNotLoggedIn
+            }
+            if useCodexSubagents {
+                // Explicit beta mode setting, also shown in the UI. Not a
+                // fallback after an unavailable model or service error.
+                guard let effort = minimumSubagentEffort else { throw AppError.codexModelUnavailable(codexModel.rawValue) }
+                return CodexSubagentTranslationProvider(bridge: CodexBridge(
+                    codexURL: tools.codex, model: codexModel.rawValue, reasoningEffort: effort))
             }
             return CodexTranslationProvider(bridge: bridge)
         case .appleLocal:
@@ -2020,10 +2053,7 @@ final class AppViewModel: ObservableObject {
     }
 
     private func preferredTrack(in info: MediaInfo) -> SubtitleTrack? {
-        info.subtitleTracks.first(where: { $0.isText && $0.matches(sourceLanguage) })
-            ?? info.subtitleTracks.first(where: { $0.supportsLocalOCR && $0.matches(sourceLanguage) })
-            ?? info.subtitleTracks.first(where: \.isText)
-            ?? info.subtitleTracks.first(where: \.supportsLocalOCR)
+        SubtitleTrack.preferred(in: info.subtitleTracks, language: sourceLanguage)
     }
 
     private func preferredAudioTrack(in info: MediaInfo) -> AudioTrack? {
