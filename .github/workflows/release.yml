@@ -63,7 +63,12 @@ jobs:
         run: zsh scripts/setup_dependencies.sh
 
       - name: Run unit tests
-        run: swift test --disable-sandbox
+        env:
+          SUBBUDDY_BUNDLED_MEDIA_TESTS: "1"
+        # Exercise the actual stripped-down tools, not a system FFmpeg build.
+        run: |
+          zsh scripts/build_ffmpeg_macos.sh
+          swift test --disable-sandbox
 
       - name: Validate release inputs and signing secret
         env:

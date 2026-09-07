@@ -3,7 +3,7 @@ import Foundation
 public struct FFmpegArguments: Sendable {
     public init() {}
 
-    public func extraction(input: URL, streamIndex: Int, output: URL, overwrite: Bool = true) -> [String] {
+    public func extraction(input: URL, streamIndex: Int, output: URL, overwrite: Bool = true, convertToSRT: Bool = false) -> [String] {
         [
             overwrite ? "-y" : "-n",
             "-v", "error",
@@ -12,7 +12,7 @@ public struct FFmpegArguments: Sendable {
             "-progress", "pipe:1",
             "-i", input.path,
             "-map", "0:\(streamIndex)",
-            "-c:s", "copy",
+            "-c:s", convertToSRT ? "subrip" : "copy",
             output.path
         ]
     }
@@ -39,6 +39,9 @@ public struct FFmpegArguments: Sendable {
         overwrite: Bool
     ) throws -> [String] {
         guard !FileSafety.refersToSameFile(input, output) else { throw AppError.originalOverwriteForbidden }
+        guard MediaFileSupport.canRemux(input) else {
+            throw AppError.invalidMedia("该视频格式请使用独立 SRT 输出；重新封装目前仅支持 MKV。")
+        }
         return [
             overwrite ? "-y" : "-n",
             "-v", "error",
@@ -222,7 +225,7 @@ public final class FFmpegService: @unchecked Sendable {
         durationSeconds: Double?,
         progress: @escaping @Sendable (Double) -> Void
     ) async throws {
-        if let mkvextractURL {
+        if let mkvextractURL, MediaFileSupport.canRemux(input) {
             do {
                 let arguments = mkvExtractArgumentBuilder.extraction(
                     input: input,
@@ -260,7 +263,8 @@ public final class FFmpegService: @unchecked Sendable {
                 guidance: "内嵌 FFmpeg 未找到或不可执行。请重新安装本 App；也可运行 brew install ffmpeg 后重新检测。"
             )
         }
-        let arguments = argumentBuilder.extraction(input: input, streamIndex: track.streamIndex, output: output)
+        let convert = ["mov_text", "text"].contains(track.codec.lowercased())
+        let arguments = argumentBuilder.extraction(input: input, streamIndex: track.streamIndex, output: output, convertToSRT: convert)
         let result: ProcessResult
         if let streamingExecutor = executor as? StreamingProcessExecuting, let durationSeconds, durationSeconds > 0 {
             let parser = FFmpegProgressParser(durationSeconds: durationSeconds)
@@ -341,7 +345,7 @@ public final class FFmpegService: @unchecked Sendable {
 
     public static func subtitleFormat(for codec: String) throws -> SubtitleFormat {
         switch codec.lowercased() {
-        case "subrip", "srt": return .srt
+        case "subrip", "srt", "mov_text", "text": return .srt
         case "ass", "ssa": return .ass
         case "webvtt": return .webVTT
         default: throw AppError.unsupportedSubtitle("当前版本不支持字幕编码：\(codec)。")

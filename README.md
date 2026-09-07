@@ -19,7 +19,7 @@
 
 Sub Buddy 是一款 macOS/iOS 字幕工具，核心功能是：
 
-- 从 MKV 中读取并提取 SRT、ASS/SSA、WebVTT 文字字幕。
+- macOS 支持 MKV、MP4、M4V、MOV、WebM，读取 SRT、ASS/SSA、WebVTT，以及 MP4/MOV 的文本字幕（mov_text），输出独立 SRT。
 - 用 Apple Vision 在本机识别 PGS、VobSub/DVD 图片字幕。
 - 用 whisper.cpp 在本机把英语音轨识别成字幕。
 - 使用手动分段、Apple 本地翻译或 Codex 翻译字幕。
@@ -34,7 +34,7 @@ Sub Buddy 是一款 macOS/iOS 字幕工具，核心功能是：
 #### macOS
 
 1. 从 [GitHub Releases](https://github.com/draZKillez/Sub-Buddy/releases) 下载 DMG，把 **Sub Buddy** 拖进“应用程序”。
-2. 打开应用，把 MKV 或字幕文件拖进窗口。
+2. 打开应用，把视频拖进窗口；macOS 支持 MKV、MP4、M4V、MOV、WebM。
 3. 选择要处理的字幕轨道：
    - 普通文字字幕可以直接提取。
    - PGS/VobSub 图片字幕选择“本机 OCR”。
@@ -46,7 +46,7 @@ Sub Buddy 是一款 macOS/iOS 字幕工具，核心功能是：
 5. 选择“纯译文”或“双语”，点击生成 SRT。
 6. 新 SRT 默认保存在视频旁边。播放器没有自动加载时，在播放器的字幕菜单里手动选择它。
 
-原始 MKV 不会被直接覆盖。电影中文名、年份和每份字幕数量都是可选设置，不知道怎么填时保持默认即可。
+原始视频不会被直接覆盖。新增视频格式目前输出独立 SRT，重新封装仅支持 MKV 输入。容器可能没有字幕，或包含暂不支持的字幕编码；烧录在画面中的硬字幕和 DRM 视频不在本次新增范围。转成 SRT 时无法保留复杂排版与定位。电影中文名、年份和每份字幕数量都是可选设置，不知道怎么填时保持默认即可。
 
 macOS 自动翻译默认 **Luna／关闭额外推理／每批 200 条／顺序处理**。“子智能体协作”默认关闭，适合长视频但消耗更多额度；开启后自动采用最低可用推理强度，由主任务调度最多两个子任务动态处理，关闭后恢复 `none`。短字幕直接翻译，结果由本机校验并按原始时间轴合成，不让主任务重写译文；格式错误仅补翻失败条目，最多再试两次，额度或服务限制时暂停。
 
@@ -64,7 +64,7 @@ iOS 测试版目前以单文件手动翻译为主，不包含 Codex 自动翻译
 ### 它是怎么实现的？
 
 - **Swift + SwiftUI**：macOS 14+ 和 iOS 16+ 原生界面。
-- **FFmpeg/ffprobe**：检查 MKV、提取字幕和音频；macOS 检测到 `mkvextract` 时会优先使用快速提取路径。
+- **FFmpeg/ffprobe**：检查视频、提取字幕和音频；仅 MKV 输入会在检测到 `mkvextract` 时优先使用快速提取路径。字幕提取不重新编码视频和音频。
 - **Apple Vision**：在设备上 OCR 图片字幕，图片不会上传。
 - **whisper.cpp**：在设备上识别英语音轨；模型由用户选择并按需下载。
 - **Apple Translation**：使用系统语言包进行本地翻译。
@@ -80,7 +80,7 @@ iOS 测试版目前以单文件手动翻译为主，不包含 Codex 自动翻译
 
 Sub Buddy is a subtitle utility for macOS and iOS. Its main features are:
 
-- Read and extract SRT, ASS/SSA, and WebVTT subtitle tracks from MKV files.
+- macOS supports MKV, MP4, M4V, MOV and WebM: read SRT, ASS/SSA, WebVTT and MP4/MOV timed-text tracks (`mov_text`) and export standalone SRT.
 - Recognize PGS and VobSub/DVD bitmap subtitles locally with Apple Vision.
 - Transcribe an English audio track locally with whisper.cpp.
 - Translate subtitles with manual batches, Apple on-device translation, or Codex.
@@ -95,7 +95,7 @@ A reduced FFmpeg/ffprobe build is bundled with the app. The macOS package is Uni
 #### macOS
 
 1. Download the DMG from [GitHub Releases](https://github.com/draZKillez/Sub-Buddy/releases), then drag **Sub Buddy** into Applications.
-2. Open the app and drop in an MKV or subtitle file.
+2. Open the app and drop in a video; macOS supports MKV, MP4, M4V, MOV and WebM.
 3. Choose what to process:
    - Extract a normal text subtitle directly.
    - Choose local OCR for a PGS or VobSub track.
@@ -107,7 +107,7 @@ A reduced FFmpeg/ffprobe build is bundled with the app. The macOS package is Uni
 5. Select translation-only or bilingual output and generate the SRT.
 6. The SRT is saved beside the video by default. If the player does not load it automatically, select it from the player's subtitle menu.
 
-The original MKV is never overwritten directly. Movie title, year, and batch size are optional; the defaults are fine for most users.
+The original video is never overwritten directly. Newly supported containers export standalone SRT; remuxing is available only for MKV input. A container may have no subtitles or use unsupported subtitle codecs. Burned-in subtitles and DRM video are outside this addition. SRT conversion cannot preserve complex positioning or styling. Movie title, year, and batch size are optional; the defaults are fine for most users.
 
 macOS automatic translation defaults to **Luna / no extra reasoning / 200 cues per batch / sequential processing**. Subagent collaboration is off by default: suitable for long videos, but uses more quota. Enabling it selects the lowest supported reasoning effort; disabling it restores `none`. A coordinator dispatches dynamically sized tasks to at most two children, while short subtitles translate directly. The app validates results and merges them using original timestamps; the coordinator never rewrites translations. Only failed entries are retried, up to twice; quota or service limits pause the job.
 
@@ -125,7 +125,7 @@ The current iOS test build focuses on one-file manual translation. It does not i
 ### How does it work?
 
 - **Swift + SwiftUI** provide native macOS 14+ and iOS 16+ interfaces.
-- **FFmpeg/ffprobe** inspect MKV files and extract subtitle or audio streams; macOS prefers `mkvextract` when it is available.
+- **FFmpeg/ffprobe** inspect videos and extract subtitle or audio streams; only MKV inputs prefer `mkvextract` when available. Subtitle extraction never re-encodes video or audio.
 - **Apple Vision** performs bitmap-subtitle OCR on device.
 - **whisper.cpp** transcribes English audio locally with a user-selected model.
 - **Apple Translation** uses system language packs for on-device translation.

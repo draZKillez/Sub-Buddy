@@ -85,7 +85,7 @@ public struct MKVFolderScanner: @unchecked Sendable {
         var urls: [URL] = []
         for case let url as URL in enumerator {
             try Task.checkCancellation()
-            guard url.pathExtension.caseInsensitiveCompare("mkv") == .orderedSame else { continue }
+            guard MediaFileSupport.accepts(url) else { continue }
             let values = try? url.resourceValues(forKeys: keySet)
             guard values?.isRegularFile == true, values?.isHidden != true else { continue }
             urls.append(url)
@@ -93,7 +93,7 @@ public struct MKVFolderScanner: @unchecked Sendable {
         let sourceKeys = Set(urls.map(Self.fileKey))
         let filtered = urls.filter { url in
             let stem = url.deletingPathExtension().lastPathComponent.lowercased()
-            guard let expression = Self.generatedSuffixExpression,
+            guard MediaFileSupport.canRemux(url), let expression = Self.generatedSuffixExpression,
                   let match = expression.firstMatch(
                     in: stem,
                     range: NSRange(stem.startIndex..., in: stem)

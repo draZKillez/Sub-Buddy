@@ -206,7 +206,11 @@ public struct SubtitleParser: Sendable {
     }
 
     private func parseVTTTimestamp(_ value: String) -> Int64? {
-        parseClock(value, fractionalScale: 1_000)
+        // WebVTT permits MM:SS.mmm as well as HH:MM:SS.mmm. FFmpeg's
+        // WebVTT muxer omits zero hours, unlike the old hand-written fixtures.
+        let normalized = value.split(separator: ":", omittingEmptySubsequences: false).count == 2
+            ? "00:" + value : value
+        return parseClock(normalized, fractionalScale: 1_000)
     }
 
     private func parseASSTimestamp(_ value: String) -> Int64? {

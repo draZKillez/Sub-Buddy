@@ -6,6 +6,7 @@ SHA-256: 464beb5e7bf0c311e68b45ae2f04e9cc2af88851abb4082231742a74d97b524c
 The reproducible configure options are maintained in scripts/build_ffmpeg_macos.sh.
 This build deliberately disables GPL, nonfree, network access, device input,
 automatic external-library detection, and unrelated codecs/formats. It enables
-only the local file/pipe protocols and the Matroska, SRT, ASS/SSA, WebVTT and
+only the local file/pipe protocols and the Matroska/WebM, MOV/MP4/M4V, SRT, ASS/SSA, WebVTT and
 PGS and VobSub components needed for inspection, subtitle extraction, local
-bitmap decoding and stream-copy muxing.
+bitmap decoding and stream-copy muxing. MOV timed text is decoded and converted
+to SRT; video and audio are never decoded for subtitle extraction.

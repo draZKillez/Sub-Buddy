@@ -235,7 +235,7 @@ final class AppViewModel: ObservableObject {
     }
 
     var speechOutputPathText: String {
-        speechOutputURL?.path ?? defaultSpeechOutputURL?.path ?? AppInterfaceLanguage.localized("选择 MKV 后自动生成")
+        speechOutputURL?.path ?? defaultSpeechOutputURL?.path ?? AppInterfaceLanguage.localized("选择视频后自动生成")
     }
 
     var ffmpegReady: Bool {
@@ -256,7 +256,7 @@ final class AppViewModel: ObservableObject {
     }
 
     var outputPathText: String {
-        outputURL?.path ?? defaultOutputURL?.path ?? AppInterfaceLanguage.localized("选择 MKV 后自动生成")
+        outputURL?.path ?? defaultOutputURL?.path ?? AppInterfaceLanguage.localized("选择视频后自动生成")
     }
 
     var defaultOutputURL: URL? {
@@ -318,8 +318,8 @@ final class AppViewModel: ObservableObject {
     var overwriteExplanation: String {
         AppInterfaceLanguage.localized(
             deliveryMode == .sidecarSRT
-                ? "只会覆盖已有的同名 SRT，原始 MKV 不会被修改。"
-                : "只会覆盖已有的翻译版 MKV，原始 MKV 永远不会被覆盖。"
+                ? "只会覆盖已有的同名 SRT，原始视频不会被修改。"
+                : "只会覆盖已有的翻译版 MKV，原始视频永远不会被覆盖。"
         )
     }
 
@@ -579,6 +579,7 @@ final class AppViewModel: ObservableObject {
         abandonJobTiming()
         isInspecting = true
         selectedFile = url
+        if !MediaFileSupport.canRemux(url) { deliveryMode = .sidecarSRT }
         selectedFileSizeBytes = Self.fileSizeBytes(at: url)
         mediaInfo = nil
         selectedTrackIndex = nil
@@ -611,6 +612,7 @@ final class AppViewModel: ObservableObject {
 
     func loadFolder(_ url: URL) {
         guard !isMediaBusy, !isScanningFolder, !isBatchProcessing else { return }
+        deliveryMode = .sidecarSRT
         batchQueueGeneration += 1
         inspectionTask?.cancel()
         folderScanTask?.cancel()
@@ -643,7 +645,7 @@ final class AppViewModel: ObservableObject {
                 guard selectionGeneration == generation else { return }
                 guard !urls.isEmpty else {
                     batchJobs = []
-                    throw AppError.invalidMedia("所选文件夹及其子文件夹中没有找到 MKV 文件。")
+                    throw AppError.invalidMedia("所选文件夹及其子文件夹中没有找到支持的视频文件。")
                 }
                 batchJobs = urls.map { BatchJob(inputPath: $0.path) }
                 await persistBatchQueueNow()

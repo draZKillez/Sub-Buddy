@@ -1,0 +1,8 @@
+1
+00:00:01,234 --> 00:00:02,789
+Hello, <i>friend</i>.
+
+2
+00:00:03,050 --> 00:00:04,100
+Second line.
+Keep this line break.

@@ -205,6 +205,14 @@ final class SubtitleParserWriterTests: XCTestCase {
         XCTAssertEqual(document.cues.first?.text, "Hello")
     }
 
+    func testWebVTTAllowsOmittedHoursFromFFmpeg() throws {
+        let source = "WEBVTT\n\n00:01.234 --> 00:02.789\nHello\n\n01:02:03.456 --> 01:02:04.567\nLater\n"
+        let document = try SubtitleParser().parse(data: Data(source.utf8), format: .webVTT)
+        XCTAssertEqual(document.cues.map(\.startMilliseconds), [1234, 3_723_456])
+        XCTAssertEqual(document.cues.map(\.endMilliseconds), [2789, 3_724_567])
+        XCTAssertThrowsError(try SubtitleParser().parse(data: Data("WEBVTT\n\n60:01.000 --> 60:02.000\nBad\n".utf8), format: .webVTT))
+    }
+
     func testWebVTTRejectsEmptyAndMalformedCueBlocksButAllowsMetadataBlocks() throws {
         let parser = SubtitleParser()
         XCTAssertThrowsError(try parser.parse(data: Data("WEBVTT\n\n".utf8), format: .webVTT))

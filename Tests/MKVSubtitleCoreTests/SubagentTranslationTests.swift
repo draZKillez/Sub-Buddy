@@ -78,6 +78,35 @@ final class SubagentTranslationTests: XCTestCase {
         XCTAssertThrowsError(try oversized.append(Data(repeating:65, count:4*1_024*1_024+1)))
     }
 
+    func testRejectedSpawnDrainsExistingWorkAndLeavesMissingIDsForRepair() throws {
+        let source = cues(4)
+        var collector = CodexSubagentCollector(parts: [Array(source.prefix(2)), Array(source.suffix(2))])
+        _ = try collector.consume(event(["type":"thread.started", "thread_id":"root"]))
+        _ = try collector.consume(spawn(0))
+        _ = try collector.consume(event(["type":"item.completed", "item":["id":"failed", "type":"collab_tool_call", "tool":"spawn_agent", "sender_thread_id":"root", "receiver_thread_ids":[], "agents_states":[:], "status":"failed"]]))
+        let response = TranslationResponse(items: source.prefix(2).map { .init(id:$0.id, text:"译文", source:$0.text) }, glossaryUpdates:[])
+        let raw = String(decoding:try JSONEncoder().encode(response), as:UTF8.self)
+        let accepted = try collector.consume(event(["type":"item.completed", "item":["id":"wait", "type":"collab_tool_call", "tool":"wait", "sender_thread_id":"root", "receiver_thread_ids":["child0"], "status":"completed", "agents_states":["child0":["status":"completed", "message":raw]]]]))
+        XCTAssertEqual(accepted.flatMap { $0.items.map(\.id) }, [1,2])
+        _ = try collector.consume(event(["type":"turn.completed"]))
+        try collector.finish()
+        XCTAssertEqual(collector.response.items.map(\.id), [1,2])
+    }
+
+    func testRepeatedRejectedSpawnsHaveFiniteLimitAndNoMissingToolMessage() throws {
+        var collector = CodexSubagentCollector(parts: [cues(1)])
+        _ = try collector.consume(event(["type":"thread.started", "thread_id":"root"]))
+        for index in 0..<3 {
+            let data = try event(["type":"item.completed", "item":["id":"failed\(index)", "type":"collab_tool_call", "tool":"spawn_agent", "sender_thread_id":"root", "receiver_thread_ids":[], "status":"failed"]])
+            if index < 2 { _ = try collector.consume(data) }
+            else {
+                XCTAssertThrowsError(try collector.consume(data)) { error in
+                    guard case .processFailed = error as? AppError else { return XCTFail("Must not misreport a missing CLI") }
+                }
+            }
+        }
+    }
+
     func testProviderStreamsTasksUsesOneSessionAndCoordinatorDoesNotTranslate() async throws {
         let source = cues(601)
         let tasks = try CodexSubtitleTaskPlanner.tasks(for: request(source))
@@ -117,6 +146,16 @@ final class SubagentTranslationTests: XCTestCase {
         catch let error as AppError { guard case .codexQuotaUnavailable = error else { return XCTFail("Wrong error: \(error)") } }
         let calls = await executor.snapshot().0
         XCTAssertEqual(calls, 1)
+    }
+
+    func testSpawnQuotaErrorIsNeverTreatedAsRecoverableCapacity() throws {
+        var collector = CodexSubagentCollector(parts: [cues(1)])
+        _ = try collector.consume(event(["type":"thread.started", "thread_id":"root"]))
+        let data = try event(["type":"item.completed", "item":["id":"failed", "type":"collab_tool_call", "tool":"spawn_agent", "sender_thread_id":"root", "receiver_thread_ids":[], "status":"failed", "error":["message":"capacity unavailable: usage limit reached"]]])
+        XCTAssertThrowsError(try collector.consume(data)) { error in
+            guard case let .processFailed(_, _, message) = error as? AppError else { return XCTFail("Expected classified service failure") }
+            XCTAssertTrue(message.contains("usage limit"))
+        }
     }
 
     func testEngineKeepsStreamedPartsAndRepairsOnlyMissingIDs() async throws {

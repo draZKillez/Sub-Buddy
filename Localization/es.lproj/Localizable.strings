@@ -24,6 +24,7 @@
 "可填写 1–1000，默认 500。" = "Introduce 1–1000; 500 por defecto.";
 "选择 MKV 或字幕文件" = "Elegir MKV o archivo de subtítulos";
 "选择 MKV…" = "Elegir MKV…";
+"选择视频…" = "Elegir vídeo…";
 "选择文件夹…" = "Elegir carpeta…";
 "清空" = "Borrar";
 "取消" = "Cancelar";
@@ -109,6 +110,7 @@
 "模型不可用" = "Modelo no disponible";
 "当前额度或服务不可用" = "Cuota o servicio no disponible";
 "正在读取 MKV 轨道" = "Leyendo pistas MKV";
+"正在读取视频轨道" = "Leyendo pistas vídeo";
 "正在提取字幕" = "Extrayendo subtítulos";
 "正在本机识别 PGS" = "Reconociendo PGS en el dispositivo";
 "正在整理字幕" = "Preparando subtítulos";
@@ -200,3 +202,7 @@
 "2 批（并发）" = "2 lotes (en paralelo)";
 "默认每批 200 条、顺序翻译；可选两批并发。校验后保存，仅补翻失败条目，最多再试两次。额度或服务限制时暂停。" = "Por defecto: 200 entradas por lote, en serie; dos lotes paralelos opcionales. Guardar entradas validadas y reintentar solo los fallos, hasta dos veces. Pausar por límites de cuota o servicio.";
 "模型列表已刷新；保留当前模型，子智能体模式使用最低可用推理强度。" = "Modelos actualizados; se conserva el modelo actual. Los subagentes usan el nivel mínimo de razonamiento admitido.";
+"无法读取视频：%@" = "No se puede leer el vídeo: %@";
+"请选择 MKV、MP4、M4V、MOV 或 WebM 视频。" = "Elige un vídeo MKV, MP4, M4V, MOV o WebM.";
+"该视频格式请使用独立 SRT 输出；重新封装目前仅支持 MKV。" = "Usa un SRT independiente para este formato; el remultiplexado solo admite entrada MKV.";
+"为保护原文件，不能直接覆盖输入视频。" = "No se puede sobrescribir el vídeo de entrada.";

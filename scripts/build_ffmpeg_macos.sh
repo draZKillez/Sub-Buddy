@@ -38,13 +38,13 @@ build_arch() {
   if [[ "${FFMPEG_FORCE_REBUILD:-0}" != "1" && -x "$arch_root/ffmpeg" && -x "$arch_root/ffprobe" \
         && -x "$arch_root/mkvbitmapdecode" && "$arch_root/mkvbitmapdecode" -nt "$wrapper_source" \
         && "$arch_root/mkvbitmapdecode" -nt "$cli_source" \
-        && -f "$arch_root/config_components.h" ]] && grep -q '^#define CONFIG_DVDSUB_DECODER 1' "$arch_root/config_components.h"; then
+        && -f "$arch_root/config_components.h" ]] && grep -q '^#define CONFIG_MOVTEXT_DECODER 1' "$arch_root/config_components.h"; then
     print "Reusing completed $arch FFmpeg tools"
     return
   fi
   local rebuild_ffmpeg=1
   if [[ "${FFMPEG_FORCE_REBUILD:-0}" != "1" && -x "$arch_root/ffmpeg" && -x "$arch_root/ffprobe" \
-        && -f "$arch_root/config_components.h" ]] && grep -q '^#define CONFIG_DVDSUB_DECODER 1' "$arch_root/config_components.h"; then
+        && -f "$arch_root/config_components.h" ]] && grep -q '^#define CONFIG_MOVTEXT_DECODER 1' "$arch_root/config_components.h"; then
     rebuild_ffmpeg=0
     print "Rebuilding only the $arch VobSub helper"
   fi
@@ -90,6 +90,7 @@ build_arch() {
     --enable-protocol=file \
     --enable-protocol=pipe \
     --enable-demuxer=matroska \
+    --enable-demuxer=mov \
     --enable-demuxer=srt \
     --enable-demuxer=ass \
     --enable-demuxer=webvtt \
@@ -103,6 +104,8 @@ build_arch() {
     --enable-decoder=ass \
     --enable-decoder=ssa \
     --enable-decoder=webvtt \
+    --enable-decoder=movtext \
+    --enable-decoder=text \
     --enable-decoder=pgssub \
     --enable-decoder=dvdsub \
     --enable-encoder=subrip \

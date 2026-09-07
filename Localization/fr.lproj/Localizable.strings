@@ -24,6 +24,7 @@
 "可填写 1–1000，默认 500。" = "Saisissez 1–1000 ; 500 par défaut.";
 "选择 MKV 或字幕文件" = "Choisir un MKV ou un sous-titre";
 "选择 MKV…" = "Choisir un MKV…";
+"选择视频…" = "Choisir un vidéo…";
 "选择文件夹…" = "Choisir un dossier…";
 "清空" = "Effacer";
 "取消" = "Annuler";
@@ -109,6 +110,7 @@
 "模型不可用" = "Modèle indisponible";
 "当前额度或服务不可用" = "Quota ou service indisponible";
 "正在读取 MKV 轨道" = "Lecture des pistes MKV";
+"正在读取视频轨道" = "Lecture des pistes vidéo";
 "正在提取字幕" = "Extraction des sous-titres";
 "正在本机识别 PGS" = "Reconnaissance PGS locale";
 "正在整理字幕" = "Préparation des sous-titres";
@@ -200,3 +202,7 @@
 "2 批（并发）" = "2 lots (en parallèle)";
 "默认每批 200 条、顺序翻译；可选两批并发。校验后保存，仅补翻失败条目，最多再试两次。额度或服务限制时暂停。" = "Par défaut : 200 répliques par lot, en série ; deux lots parallèles en option. Enregistrer les éléments validés et réessayer seulement les échecs, deux fois maximum. Pause en cas de limite de quota ou de service.";
 "模型列表已刷新；保留当前模型，子智能体模式使用最低可用推理强度。" = "Modèles actualisés ; modèle actuel conservé. Les sous-agents utilisent le niveau de raisonnement minimal pris en charge.";
+"无法读取视频：%@" = "Impossible de lire la vidéo : %@";
+"请选择 MKV、MP4、M4V、MOV 或 WebM 视频。" = "Choisissez une vidéo MKV, MP4, M4V, MOV ou WebM.";
+"该视频格式请使用独立 SRT 输出；重新封装目前仅支持 MKV。" = "Utilisez un SRT séparé pour ce format ; le remuxage nécessite une entrée MKV.";
+"为保护原文件，不能直接覆盖输入视频。" = "La vidéo source ne peut pas être écrasée.";

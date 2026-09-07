@@ -35,7 +35,8 @@ let package = Package(
         ),
         .testTarget(
             name: "MKVSubtitleCoreTests",
-            dependencies: ["MKVSubtitleCore"]
+            dependencies: ["MKVSubtitleCore"],
+            exclude: ["Fixtures"]
         )
     ]
 )

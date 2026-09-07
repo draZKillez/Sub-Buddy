@@ -14,8 +14,8 @@ public final class MKVInspector: MKVInspecting, @unchecked Sendable {
     }
 
     public func inspect(_ url: URL) async throws -> MediaInfo {
-        guard url.pathExtension.lowercased() == "mkv" else {
-            throw AppError.invalidMedia("请选择 .mkv 文件。")
+        guard MediaFileSupport.accepts(url) else {
+            throw AppError.invalidMedia("请选择 MKV、MP4、M4V、MOV 或 WebM 视频。")
         }
         guard let ffprobeURL else {
             throw AppError.toolMissing(
@@ -33,7 +33,7 @@ public final class MKVInspector: MKVInspecting, @unchecked Sendable {
             let probe = try JSONDecoder().decode(ProbeResponse.self, from: data)
             let tracks = probe.streams.filter { $0.codecType == "subtitle" }.map { stream in
                 let codec = stream.codecName ?? "unknown"
-                let title = stream.tags?.title ?? ""
+                let title = stream.tags?.title ?? stream.tags?.handlerName ?? ""
                 return SubtitleTrack(
                     streamIndex: stream.index,
                     codec: codec,
@@ -69,7 +69,7 @@ public final class MKVInspector: MKVInspecting, @unchecked Sendable {
         }
     }
 
-    public static let supportedTextCodecs: Set<String> = ["subrip", "srt", "ass", "ssa", "webvtt"]
+    public static let supportedTextCodecs: Set<String> = ["subrip", "srt", "ass", "ssa", "webvtt", "mov_text", "text"]
     public static let imageSubtitleCodecs: Set<String> = ["hdmv_pgs_subtitle", "dvd_subtitle", "dvb_subtitle", "xsub"]
 
     private struct ProbeResponse: Decodable {
@@ -90,7 +90,12 @@ public final class MKVInspector: MKVInspecting, @unchecked Sendable {
         }
     }
     private struct ProbeFormat: Decodable { let duration: String?; let tags: ProbeTags? }
-    private struct ProbeTags: Decodable { let language: String?; let title: String? }
+    private struct ProbeTags: Decodable {
+        let language: String?
+        let title: String?
+        let handlerName: String?
+        enum CodingKeys: String, CodingKey { case language, title; case handlerName = "handler_name" }
+    }
     private struct ProbeDisposition: Decodable {
         let defaultValue: Int?
         let forced: Int?

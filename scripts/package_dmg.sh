@@ -5,8 +5,8 @@ PROJECT_DIR="${0:A:h:h}"
 OUTPUT_DIR="${PACKAGE_OUTPUT_DIR:-$PROJECT_DIR/outputs}"
 APP_NAME="Sub Buddy"
 EXECUTABLE_NAME="MKVSubtitleTranslator"
-VERSION="${APP_VERSION:-0.9.1}"
-BUILD_NUMBER="${APP_BUILD_NUMBER:-27}"
+VERSION="${APP_VERSION:-0.9.2}"
+BUILD_NUMBER="${APP_BUILD_NUMBER:-28}"
 UPDATE_REPOSITORY="${GITHUB_REPOSITORY:-}"
 SIGN_IDENTITY="${CODESIGN_IDENTITY:--}"
 APP_PATH="$OUTPUT_DIR/$APP_NAME.app"
@@ -44,7 +44,8 @@ zsh "$PROJECT_DIR/scripts/setup_dependencies.sh"
 
 if [[ ! -x "$TOOLS_ROOT/ffmpeg" || ! -x "$TOOLS_ROOT/ffprobe" || ! -x "$TOOLS_ROOT/mkvbitmapdecode" \
       || "$TOOLS_ROOT/mkvbitmapdecode" -ot "$FFMPEG_WRAPPER_SOURCE" \
-      || "$TOOLS_ROOT/mkvbitmapdecode" -ot "$BITMAP_CLI_SOURCE" ]]; then
+      || "$TOOLS_ROOT/mkvbitmapdecode" -ot "$BITMAP_CLI_SOURCE" \
+      || "$TOOLS_ROOT/ffmpeg" -ot "$PROJECT_DIR/scripts/build_ffmpeg_macos.sh" ]]; then
   zsh "$PROJECT_DIR/scripts/build_ffmpeg_macos.sh"
 fi
 

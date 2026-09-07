@@ -23,7 +23,7 @@ public enum AppError: LocalizedError, Equatable {
         switch self {
         case let .toolMissing(name, guidance): return "未检测到 \(name)。\(guidance)"
         case let .processFailed(tool, code, message): return "\(tool) 执行失败（退出码 \(code)）：\(message)"
-        case let .invalidMedia(message): return "无法读取 MKV：\(message)"
+        case let .invalidMedia(message): return AppInterfaceLanguage.localizedFormat("无法读取视频：%@", AppInterfaceLanguage.localized(message))
         case let .speechRecognition(message): return "英文语音识别失败：\(message)"
         case let .modelDownload(message): return "Whisper 模型下载失败：\(message)"
         case let .unsupportedSubtitle(message): return message
@@ -36,7 +36,7 @@ public enum AppError: LocalizedError, Equatable {
         case let .invalidTranslation(message): return "模型返回格式无效：\(message)"
         case let .manualSubtitleFormat(message): return "手动字幕格式无效：\(message)"
         case let .outputExists(url): return "输出文件已存在：\(url.path)"
-        case .originalOverwriteForbidden: return "为保护原文件，不能直接覆盖输入 MKV。"
+        case .originalOverwriteForbidden: return AppInterfaceLanguage.localized("为保护原文件，不能直接覆盖输入视频。")
         case .cancelled: return "任务已取消。已完成的字幕块进度已保存。"
         }
     }

@@ -115,7 +115,7 @@ struct ContentView: View {
             Button("取消", role: .cancel) {}
             Button("覆盖英文字幕", role: .destructive) { viewModel.startSpeechRecognition(overwrite: true) }
         } message: {
-            Text("只会覆盖已有的同名 .en.srt，原始 MKV 不会被修改。")
+            Text("只会覆盖已有的同名 .en.srt，原始视频不会被修改。")
         }
         .alert(AppInterfaceLanguage.localized("安装 FFmpeg？"), isPresented: $viewModel.showFFmpegInstallConfirmation) {
             Button("取消", role: .cancel) {}
@@ -246,7 +246,7 @@ struct ContentView: View {
             if viewModel.isInspecting {
                 HStack(spacing: 10) {
                     ProgressView().controlSize(.small)
-                    Text("正在读取 MKV 轨道")
+                    Text("正在读取视频轨道")
                 }
                 .padding(12)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -467,10 +467,11 @@ struct ContentView: View {
             .overlay {
                 VStack(spacing: 18) {
                     Image(systemName: "captions.bubble").font(.system(size: 48, weight: .light)).foregroundStyle(.tint)
-                    Text(viewModel.selectedFile?.lastPathComponent ?? viewModel.selectedFolder?.lastPathComponent ?? "将 MKV 文件拖到这里").font(.headline)
+                    Text(viewModel.selectedFile?.lastPathComponent ?? viewModel.selectedFolder?.lastPathComponent ?? "将视频文件拖到这里").font(.headline)
                     Text("支持中文、空格及特殊字符文件名").font(.caption).foregroundStyle(.secondary)
+                    Text("MKV · MP4 · M4V · MOV · WebM").font(.caption).foregroundStyle(.secondary)
                     HStack {
-                        Button("选择 MKV…") { chooseFile() }
+                        Button("选择视频…") { chooseFile() }
                             .buttonStyle(.borderedProminent)
                             .disabled(viewModel.isMediaBusy || viewModel.isInspecting || viewModel.isScanningFolder)
                         Button("选择文件夹…") { chooseFolder() }
@@ -888,7 +889,7 @@ struct ContentView: View {
                             .textSelection(.enabled)
                             .foregroundStyle(.secondary)
                     }
-                    Text("输出是独立的新英文 SRT（.en.srt），不会修改或重新封装 MKV；之后可在本应用里继续翻译字幕。")
+                    Text("输出是独立的新英文 SRT（.en.srt），不会修改或重新封装视频；之后可在本应用里继续翻译字幕。")
                         .font(.caption)
                         .foregroundStyle(.secondary)
 
@@ -1047,7 +1048,7 @@ struct ContentView: View {
                 }
                 LabeledContent("输出方式") {
                     Picker("输出方式", selection: $viewModel.deliveryMode) {
-                        ForEach(DeliveryMode.allCases) { mode in
+                        ForEach(DeliveryMode.allCases.filter { $0 == .sidecarSRT || viewModel.selectedFile.map(MediaFileSupport.canRemux) == true }) { mode in
                             Text(mode.displayName).tag(mode)
                         }
                     }
@@ -1278,7 +1279,7 @@ struct ContentView: View {
                 }
                 if deliveryMode == .sidecarSRT {
                     Text(AppInterfaceLanguage.localizedFormat(
-                        "这是独立的%@字幕文件，原始 MKV 没有被重新封装或修改。",
+                        "这是独立的%@字幕文件，原始视频没有被重新封装或修改。",
                         outputMode.displayName
                     ))
                         .font(.caption)
@@ -1288,7 +1289,7 @@ struct ContentView: View {
                         .foregroundStyle(.secondary)
                 } else {
                     Text(AppInterfaceLanguage.localizedFormat(
-                        "已新增“%@”字幕轨道；原字幕及原始 MKV 均未被替换。",
+                        "已新增“%@”字幕轨道；原字幕及原始视频均未被替换。",
                         viewModel.trackTitle(for: outputMode)
                     ))
                         .font(.caption)
@@ -1315,7 +1316,7 @@ struct ContentView: View {
                     systemImage: "captions.bubble"
                 )
                 Label(
-                    "这是独立的新 SRT，不会重新封装、替换或修改原始 MKV。",
+                    "这是独立的新 SRT，不会重新封装、替换或修改原始视频。",
                     systemImage: "doc.on.doc"
                 )
                 Label(
@@ -1363,7 +1364,7 @@ struct ContentView: View {
     }
 
     private var mediaToolsDetail: String {
-        if !viewModel.ffmpegReady { return "未检测到 FFmpeg，处理 MKV 前需要安装" }
+        if !viewModel.ffmpegReady { return "未检测到 FFmpeg，处理视频前需要安装" }
         if viewModel.usesBundledFFmpeg { return "内置 FFmpeg / ffprobe 已就绪" }
         if viewModel.mkvExtractReady { return "FFmpeg 已就绪 · mkvextract 快速提取已启用" }
         return "FFmpeg 已就绪 · 当前使用兼容提取模式"
@@ -1439,7 +1440,7 @@ struct ContentView: View {
 
     private func chooseFile() {
         let panel = NSOpenPanel()
-        panel.allowedContentTypes = [UTType(filenameExtension: "mkv") ?? .movie]
+        panel.allowedContentTypes = MediaFileSupport.extensions.compactMap { UTType(filenameExtension: $0) }
         panel.allowsMultipleSelection = false
         panel.canChooseDirectories = false
         if panel.runModal() == .OK, let url = panel.url { viewModel.loadFile(url) }

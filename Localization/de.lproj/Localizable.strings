@@ -24,6 +24,7 @@
 "可填写 1–1000，默认 500。" = "1–1000 eingeben; Standard ist 500.";
 "选择 MKV 或字幕文件" = "MKV oder Untertitel wählen";
 "选择 MKV…" = "MKV auswählen…";
+"选择视频…" = "Video auswählen…";
 "选择文件夹…" = "Ordner auswählen…";
 "清空" = "Leeren";
 "取消" = "Abbrechen";
@@ -109,6 +110,7 @@
 "模型不可用" = "Modell nicht verfügbar";
 "当前额度或服务不可用" = "Kontingent oder Dienst nicht verfügbar";
 "正在读取 MKV 轨道" = "MKV-Spuren werden gelesen";
+"正在读取视频轨道" = "Video-Spuren werden gelesen";
 "正在提取字幕" = "Untertitel werden extrahiert";
 "正在本机识别 PGS" = "PGS wird lokal erkannt";
 "正在整理字幕" = "Untertitel werden vorbereitet";
@@ -200,3 +202,7 @@
 "2 批（并发）" = "2 Stapel (parallel)";
 "默认每批 200 条、顺序翻译；可选两批并发。校验后保存，仅补翻失败条目，最多再试两次。额度或服务限制时暂停。" = "Standard: 200 Einträge je Stapel, nacheinander; optional zwei parallel. Geprüfte Einträge speichern, nur fehlerhafte bis zu zweimal wiederholen. Bei Kontingent- oder Dienstlimits pausieren.";
 "模型列表已刷新；保留当前模型，子智能体模式使用最低可用推理强度。" = "Modelle aktualisiert; aktuelles Modell beibehalten. Unteragenten nutzen die niedrigste unterstützte Reasoning-Stufe.";
+"无法读取视频：%@" = "Video kann nicht gelesen werden: %@";
+"请选择 MKV、MP4、M4V、MOV 或 WebM 视频。" = "Wähle ein MKV-, MP4-, M4V-, MOV- oder WebM-Video.";
+"该视频格式请使用独立 SRT 输出；重新封装目前仅支持 MKV。" = "Für dieses Format bitte separate SRT-Ausgabe verwenden; Remuxing unterstützt nur MKV-Eingaben.";
+"为保护原文件，不能直接覆盖输入视频。" = "Das Quellvideo darf nicht überschrieben werden.";

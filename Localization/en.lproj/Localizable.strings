@@ -24,6 +24,7 @@
 "可填写 1–1000，默认 500。" = "Enter 1–1000; default is 500.";
 "选择 MKV 或字幕文件" = "Choose MKV or Subtitle File";
 "选择 MKV…" = "Choose MKV…";
+"选择视频…" = "Choose video…";
 "选择文件夹…" = "Choose Folder…";
 "支持中文、空格及特殊字符文件名" = "Supports Unicode, spaces, and special characters in filenames";
 "清空" = "Clear";
@@ -118,6 +119,7 @@
 "速度和表达质量更均衡" = "Balanced speed and writing quality";
 "质量优先，通常等待更久" = "Higher quality, usually slower";
 "正在读取 MKV 轨道" = "Reading MKV Tracks";
+"正在读取视频轨道" = "Reading video tracks";
 "正在提取字幕" = "Extracting Subtitles";
 "正在本机识别 PGS" = "Recognizing PGS On Device";
 "正在整理字幕" = "Preparing Subtitles";
@@ -245,8 +247,11 @@
 "取消下载" = "Cancel Download";
 "取消识别" = "Cancel Recognition";
 "只会覆盖已有的同名 .en.srt，原始 MKV 不会被修改。" = "Only the existing same-name .en.srt will be replaced; the original MKV is not modified.";
+"只会覆盖已有的同名 .en.srt，原始视频不会被修改。" = "Only the existing same-name .en.srt will be replaced; the original video is not modified.";
 "只会覆盖已有的同名 SRT，原始 MKV 不会被修改。" = "Only the existing same-name SRT will be replaced; the original MKV is not modified.";
+"只会覆盖已有的同名 SRT，原始视频不会被修改。" = "Only the existing same-name SRT will be replaced; the original video is not modified.";
 "只会覆盖已有的翻译版 MKV，原始 MKV 永远不会被覆盖。" = "Only the translated MKV output will be replaced; the original MKV is never overwritten.";
+"只会覆盖已有的翻译版 MKV，原始视频永远不会被覆盖。" = "Only the translated video output will be replaced; the original video is never overwritten.";
 "合并并生成 SRT" = "Merge and Generate SRT";
 "合并并重新封装" = "Merge and Remux";
 "多数播放器会自动加载；如未自动加载，请在播放器中手动选择这个 SRT。" = "Most players load it automatically; otherwise select this SRT in the player.";
@@ -259,6 +264,7 @@
 "安装未完成。未安装时仍可使用 FFmpeg 提取。" = "Installation did not complete. FFmpeg extraction remains available.";
 "安装未完成。请查看错误提示后重试。" = "Installation did not complete. Review the error and try again.";
 "将 MKV 文件拖到这里" = "Drop an MKV File Here";
+"将视频文件拖到这里" = "Drop a video file here";
 "已从剪贴板粘贴，请校验并保存本份。" = "Pasted from the clipboard. Validate and save this batch.";
 "已取消模型下载。" = "Model download cancelled.";
 "已取消，可继续处理" = "Cancelled; processing can be resumed";
@@ -274,6 +280,7 @@
 "当前模型文件不完整，请删除后重新下载。" = "The current model file is incomplete. Delete and download it again.";
 "所有分段已合并完成。" = "All batches have been merged.";
 "所选文件夹及其子文件夹中没有找到 MKV 文件。" = "No MKV files were found in the selected folder or its subfolders.";
+"所选文件夹及其子文件夹中没有找到支持的视频文件。" = "No video files were found in the selected folder or its subfolders.";
 "手动模式支持文本字幕、PGS 与 VobSub 本地 OCR。" = "Manual mode supports text subtitles plus on-device OCR for PGS and VobSub.";
 "手动模式无需登录；AI 格式复核为可选" = "Manual mode needs no sign-in; AI format review is optional";
 "手动模式正在提取字幕" = "Manual mode is extracting subtitles";
@@ -281,6 +288,7 @@
 "推测中文片名" = "Suggest Chinese Title";
 "无法可靠确定中文片名；该字段是可选项，可以留空继续翻译。" = "A Chinese title could not be determined reliably. This optional field can remain blank.";
 "未检测到 FFmpeg，处理 MKV 前需要安装" = "FFmpeg not found; install it before processing MKV files";
+"未检测到 FFmpeg，处理视频前需要安装" = "FFmpeg not found; install it before processing video files";
 "未检测到 Homebrew" = "Homebrew Not Found";
 "本份字幕和翻译要求已复制，可以粘贴到任意 AI。" = "This subtitle batch and its instructions were copied for use with any AI.";
 "本地模型" = "Local Model";
@@ -321,10 +329,13 @@
 "输出已存在，按队列设置跳过" = "Output exists; skipped according to queue settings";
 "输出是新的 MKV 文件，不替换原始文件；临时 SRT 在封装完成后自动清理。" = "The output is a new MKV and does not replace the original; the temporary SRT is removed after remuxing.";
 "输出是独立的新英文 SRT（.en.srt），不会修改或重新封装 MKV；之后可在本应用里继续翻译字幕。" = "The output is a standalone English .en.srt. The MKV is not modified or remuxed, and the subtitle can be translated in this app.";
+"输出是独立的新英文 SRT（.en.srt），不会修改或重新封装视频；之后可在本应用里继续翻译字幕。" = "The output is a standalone English .en.srt. The video is not modified or remuxed, and the subtitle can be translated in this app.";
 "这个文件没有可用的音频轨道。" = "This file has no usable audio tracks.";
 "这是独立的新 SRT，不会重新封装、替换或修改原始 MKV。" = "This is a standalone new SRT; the original MKV is not remuxed, replaced, or modified.";
+"这是独立的新 SRT，不会重新封装、替换或修改原始视频。" = "This is a standalone new SRT; the original video is not remuxed, replaced, or modified.";
 "连接 ChatGPT" = "Connect ChatGPT";
 "选择 MKV 后自动生成" = "Generated automatically after choosing an MKV";
+"选择视频后自动生成" = "Generated automatically after choosing a video";
 "重新下载模型" = "Download Model Again";
 "队列中没有等待处理的文件。" = "The queue has no files waiting to be processed.";
 "需要 macOS 15 或更高版本。" = "Requires macOS 15 or later.";
@@ -348,7 +359,9 @@
 "手动模式还取决于每份内容在外部工具中的翻译、复制和粘贴速度；完成首份后会按实际速度校正。" = "Manual mode also depends on how quickly each batch is translated, copied, and pasted in the external tool; it is recalibrated after the first batch.";
 "累计用时：%@ · 完成时间：%@" = "Elapsed: %@ · Completed at: %@";
 "这是独立的%@字幕文件，原始 MKV 没有被重新封装或修改。" = "This is a standalone %@ subtitle file; the original MKV was not remuxed or modified.";
+"这是独立的%@字幕文件，原始视频没有被重新封装或修改。" = "This is a standalone %@ subtitle file; the original video was not remuxed or modified.";
 "已新增“%@”字幕轨道；原字幕及原始 MKV 均未被替换。" = "A new “%@” subtitle track was added; existing subtitles and the original MKV were not replaced.";
+"已新增“%@”字幕轨道；原字幕及原始视频均未被替换。" = "A new “%@” subtitle track was added; existing subtitles and the original video were not replaced.";
 "先提取所选字幕并按每份 %d 条拆分。" = "First extract the selected subtitles and split them into batches of %d.";
 "已完成 %d/%d 份 · 共 %d 条" = "Completed %d/%d batches · %d items total";
 "第 %d 份" = "Batch %d";
@@ -410,3 +423,7 @@
 "2 批（并发）" = "2 batches (parallel)";
 "默认每批 200 条、顺序翻译；可选两批并发。校验后保存，仅补翻失败条目，最多再试两次。额度或服务限制时暂停。" = "Default: 200 cues per batch, sequential; two parallel batches are optional. Save validated cues and retry only failed items, up to twice. Pause on quota or service limits.";
 "模型列表已刷新；保留当前模型，子智能体模式使用最低可用推理强度。" = "Models refreshed; current model retained. Subagent mode uses the lowest supported reasoning effort.";
+"无法读取视频：%@" = "Cannot read video: %@";
+"请选择 MKV、MP4、M4V、MOV 或 WebM 视频。" = "Choose an MKV, MP4, M4V, MOV or WebM video.";
+"该视频格式请使用独立 SRT 输出；重新封装目前仅支持 MKV。" = "Use standalone SRT output for this format; remuxing currently supports MKV input only.";
+"为保护原文件，不能直接覆盖输入视频。" = "The input video cannot be overwritten.";

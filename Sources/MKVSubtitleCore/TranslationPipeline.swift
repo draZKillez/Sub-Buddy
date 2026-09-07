@@ -104,6 +104,9 @@ public final class TranslationPipeline: @unchecked Sendable {
         overwrite: Bool,
         progress: @escaping @Sendable (PipelineProgress) -> Void
     ) async throws -> URL {
+        guard deliveryMode == .sidecarSRT || MediaFileSupport.canRemux(input) else {
+            throw AppError.invalidMedia("该视频格式请使用独立 SRT 输出；重新封装目前仅支持 MKV。")
+        }
         let temporaryRoot = fileManager.temporaryDirectory
             .appendingPathComponent("MKVSubtitleTranslator", isDirectory: true)
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
