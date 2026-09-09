@@ -102,7 +102,7 @@ private final class CatalogProcess: @unchecked Sendable {
             try? input.fileHandleForWriting.close()
             stop()
         }
-        try send(["id": 1, "method": "initialize", "params": ["clientInfo": ["name": "sub_buddy", "version": "0.9.2"]]])
+        try send(["id": 1, "method": "initialize", "params": ["clientInfo": ["name": "sub_buddy", "version": "0.9.3"]]])
         _ = try response(id: 1)
         try send(["method": "initialized"])
         var models: [CodexModelCapability] = []

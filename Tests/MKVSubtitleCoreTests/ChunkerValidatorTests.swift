@@ -204,7 +204,7 @@ final class ChunkerValidatorTests: XCTestCase {
         )
         XCTAssertEqual(result.items.map(\.id), Array(1...20))
         let requestedIDs = await provider.requestedIDs()
-        XCTAssertEqual(requestedIDs, [Array(1...20), Array(11...20), Array(19...20)])
+        XCTAssertEqual(requestedIDs, [Array(1...20), Array(11...20), [19], [20]])
     }
 }
 

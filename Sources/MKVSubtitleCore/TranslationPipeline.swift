@@ -67,6 +67,7 @@ public final class TranslationPipeline: @unchecked Sendable {
     private let jobStore: JobStore
     private let fileManager: FileManager
     private let maximumConcurrentChunks: Int
+    private let preparedSubtitleCache: PreparedSubtitleCache
 
     public init(
         ffmpeg: FFmpegService,
@@ -77,7 +78,8 @@ public final class TranslationPipeline: @unchecked Sendable {
         ocrService: LocalPGSOCRService = .init(),
         jobStore: JobStore = JobStore(),
         fileManager: FileManager = .default,
-        maximumConcurrentChunks: Int = 1
+        maximumConcurrentChunks: Int = 1,
+        preparedSubtitleCache: PreparedSubtitleCache = PreparedSubtitleCache()
     ) {
         self.ffmpeg = ffmpeg
         self.provider = provider
@@ -88,6 +90,7 @@ public final class TranslationPipeline: @unchecked Sendable {
         self.jobStore = jobStore
         self.fileManager = fileManager
         self.maximumConcurrentChunks = max(1, min(2, maximumConcurrentChunks))
+        self.preparedSubtitleCache = preparedSubtitleCache
     }
 
     public func run(
@@ -115,17 +118,29 @@ public final class TranslationPipeline: @unchecked Sendable {
 
         do {
             try Task.checkCancellation()
+            let preparationKey = try? PreparedSubtitleCache.Key(input: input, track: track, sourceLanguage: sourceLanguage)
+            let cachedDocument: SubtitleDocument?
+            if let preparationKey {
+                cachedDocument = await preparedSubtitleCache.document(for: preparationKey)
+            } else {
+                cachedDocument = nil
+            }
             let trackDetail = "轨道 #\(track.streamIndex) · \(track.codec) · \(track.language)\(track.title.isEmpty ? "" : " · \(track.title)")"
-            progress(PipelineProgress(
-                phase: .extracting,
-                completedChunks: 0,
-                totalChunks: 0,
-                phaseFraction: 0,
-                detail: trackDetail
-            ))
+            if cachedDocument == nil {
+                progress(PipelineProgress(
+                    phase: .extracting,
+                    completedChunks: 0,
+                    totalChunks: 0,
+                    phaseFraction: 0,
+                    detail: trackDetail
+                ))
+            }
             let sourceFormat: SubtitleFormat
             var document: SubtitleDocument
-            if track.isText {
+            if let cachedDocument {
+                document = cachedDocument
+                sourceFormat = cachedDocument.format
+            } else if track.isText {
                 sourceFormat = try FFmpegService.subtitleFormat(for: track.codec)
                 let sourceSubtitle = temporaryRoot.appendingPathComponent("source.\(FFmpegService.fileExtension(for: sourceFormat))")
                 try await ffmpeg.extractSubtitle(
@@ -204,6 +219,17 @@ public final class TranslationPipeline: @unchecked Sendable {
                 }
             } else {
                 throw AppError.unsupportedSubtitle("当前仅支持 SRT、ASS、WebVTT、PGS 与 VobSub 本地 OCR。")
+            }
+            try Task.checkCancellation()
+            if let preparationKey {
+                // Do not use/persist a snapshot if the video changed during preparation.
+                let currentKey = try PreparedSubtitleCache.Key(input: input, track: track, sourceLanguage: sourceLanguage)
+                guard currentKey == preparationKey else {
+                    throw AppError.invalidMedia("视频文件在处理期间发生变化，请重新选择文件。")
+                }
+                if cachedDocument == nil {
+                    await preparedSubtitleCache.store(document, for: preparationKey)
+                }
             }
             let chunks = chunker.chunks(for: document.cues)
 

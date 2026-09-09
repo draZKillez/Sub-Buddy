@@ -105,12 +105,14 @@ final class TranslationAlignmentTests: XCTestCase {
         try Data().write(to: input)
         let output = root.appendingPathComponent("Test.srt")
         let document = SubtitleDocument(format: .srt, cues: cues)
-        let ffmpeg = FFmpegService(ffmpegURL: URL(fileURLWithPath: "/unused"), executor: AlignmentExtraction(document: document))
+        let extraction = AlignmentExtraction(document: document)
+        let ffmpeg = FFmpegService(ffmpegURL: URL(fileURLWithPath: "/unused"), executor: extraction)
+        let cache = PreparedSubtitleCache()
         let store = JobStore(rootURL: root.appendingPathComponent("Jobs"))
         let track = SubtitleTrack(streamIndex: 2, codec: "subrip", language: "eng", title: "", isDefault: false, isForced: false, isSDH: false, isText: true)
         let movie = MovieInfo(originalTitle: "Test")
         do {
-            _ = try await TranslationPipeline(ffmpeg: ffmpeg, provider: AlignmentProvider(failingID: 248), jobStore: store)
+            _ = try await TranslationPipeline(ffmpeg: ffmpeg, provider: AlignmentProvider(failingID: 248), jobStore: store, preparedSubtitleCache: cache)
                 .run(input: input, track: track, movie: movie, output: output, existingSubtitleCount: 1, overwrite: false) { _ in }
             XCTFail("First attempt should fail at 248")
         } catch { XCTAssertTrue(error.localizedDescription.contains("248")) }
@@ -118,10 +120,12 @@ final class TranslationAlignmentTests: XCTestCase {
         XCTAssertEqual(Set(saved?.translatedItems.keys.map { $0 } ?? []), [247, 249])
         XCTAssertFalse(FileManager.default.fileExists(atPath: output.path))
         let provider = AlignmentProvider(failingID: nil)
-        _ = try await TranslationPipeline(ffmpeg: ffmpeg, provider: provider, jobStore: store)
+        _ = try await TranslationPipeline(ffmpeg: ffmpeg, provider: provider, jobStore: store, preparedSubtitleCache: cache)
             .run(input: input, track: track, movie: movie, output: output, existingSubtitleCount: 1, overwrite: false) { _ in }
         let requests = await provider.requests
         XCTAssertEqual(requests, [[248]])
+        let extractionCount = await extraction.calls
+        XCTAssertEqual(extractionCount, 1, "New pipeline instances must reuse prepared subtitles on retry")
         let result = try SubtitleParser().parse(contentsOf: output, format: .srt)
         XCTAssertEqual(result.cues.map(\.id), cues.map(\.id))
         XCTAssertEqual(result.cues.map(\.startMilliseconds), cues.map(\.startMilliseconds))
@@ -150,9 +154,12 @@ private actor AlignmentProvider: TranslationProvider {
     }
 }
 
-private struct AlignmentExtraction: ProcessExecuting {
+private actor AlignmentExtraction: ProcessExecuting {
     let document: SubtitleDocument
+    var calls = 0
+    init(document: SubtitleDocument) { self.document = document }
     func run(executable: URL, arguments: [String], standardInput: Data?) async throws -> ProcessResult {
+        calls += 1
         try SubtitleWriter().write(document, to: URL(fileURLWithPath: arguments.last!))
         return .init(status: 0, standardOutput: "", standardError: "")
     }

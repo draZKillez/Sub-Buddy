@@ -16,6 +16,7 @@ public struct JobTimingEstimator: Sendable {
     private var phaseStartedAt: Date?
     private var currentPhase: PipelineProgress.Phase?
     private var translationBaselineChunks = 0
+    private var translationBaselineItems = 0
     private var latestProgress: PipelineProgress?
 
     public init() {}
@@ -26,6 +27,7 @@ public struct JobTimingEstimator: Sendable {
         phaseStartedAt = date
         currentPhase = nil
         translationBaselineChunks = 0
+        translationBaselineItems = 0
         latestProgress = nil
     }
 
@@ -36,6 +38,7 @@ public struct JobTimingEstimator: Sendable {
             phaseStartedAt = date
             if progress.phase == .translating {
                 translationBaselineChunks = progress.completedChunks
+                translationBaselineItems = progress.completedItems
             }
         }
         latestProgress = progress
@@ -63,10 +66,22 @@ public struct JobTimingEstimator: Sendable {
             guard let fraction = progress.phaseFraction, fraction >= 0.05, fraction < 1 else { return nil }
             seconds = phaseElapsed * (1 - fraction) / fraction
         case .translating:
-            let measuredChunks = progress.completedChunks - translationBaselineChunks
-            let remainingChunks = max(0, progress.totalChunks - progress.completedChunks)
-            guard measuredChunks > 0, remainingChunks > 0 else { return nil }
-            seconds = phaseElapsed / Double(measuredChunks) * Double(remainingChunks)
+            // A coordinator batch can contain the entire movie. Validated child
+            // results and repair results are saved before that batch completes.
+            // Measure aggregate wall-clock throughput, not summed worker time;
+            // exclude saved items restored before this translation phase began.
+            if progress.totalItems > 0 {
+                let measuredItems = progress.completedItems - translationBaselineItems
+                let remainingItems = max(0, progress.totalItems - progress.completedItems)
+                guard measuredItems > 0, remainingItems > 0 else { return nil }
+                seconds = phaseElapsed / Double(measuredItems) * Double(remainingItems)
+            } else {
+                // Compatibility for callers which only report batch counts.
+                let measuredChunks = progress.completedChunks - translationBaselineChunks
+                let remainingChunks = max(0, progress.totalChunks - progress.completedChunks)
+                guard measuredChunks > 0, remainingChunks > 0 else { return nil }
+                seconds = phaseElapsed / Double(measuredChunks) * Double(remainingChunks)
+            }
         case .writingSubtitle:
             seconds = 5
         case .completed:
@@ -121,9 +136,17 @@ public struct OverallWorkflowTimingEstimator: Sendable {
         mediaDurationSeconds: Double?,
         usesOCR: Bool,
         deliveryMode: DeliveryMode,
-        inputFileSizeBytes: Int64?
+        inputFileSizeBytes: Int64?,
+        usesSubagents: Bool = false
     ) -> EstimatedDurationRange? {
         guard progress.phase != .completed else { return nil }
+        // Historical per-CLI-batch ranges do not describe coordinator sessions.
+        // Once real translation throughput exists, it works for either mode.
+        if usesSubagents,
+           progress.phase == .extracting || progress.phase == .ocr || progress.phase == .translating,
+           (progress.phase != .translating || currentPhaseRemaining == nil) {
+            return nil
+        }
         let boundedChunkSize = max(1, chunkSize)
         var ranges: [EstimatedDurationRange] = []
 

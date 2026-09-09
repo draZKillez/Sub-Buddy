@@ -182,6 +182,7 @@ final class AppViewModel: ObservableObject {
     private var manualCopyTextCacheKey: ManualCopyTextCacheKey?
     private var cachedManualCopyText = ""
     private var retryableWorkflowErrorMessage: String?
+    private let preparedSubtitleCache = PreparedSubtitleCache()
     private var timingEstimator = JobTimingEstimator()
     private let overallTimingEstimator = OverallWorkflowTimingEstimator()
     private var selectedFileSizeBytes: Int64?
@@ -341,9 +342,6 @@ final class AppViewModel: ObservableObject {
     }
 
     var overallEstimatedRemaining: EstimatedDurationRange? {
-        // Existing timing history measures independent CLI batches, not a
-        // coordinator plus children. Do not display a falsely precise ETA.
-        if subagentModeIsActive { return nil }
         if workflowMode == .manual, let manualSession {
             return overallTimingEstimator.estimatedManualRemaining(
                 remainingChunks: manualSession.totalChunkCount - manualSession.completedChunkCount,
@@ -360,7 +358,8 @@ final class AppViewModel: ObservableObject {
             mediaDurationSeconds: mediaInfo?.durationSeconds,
             usesOCR: selectedTrack?.supportsLocalOCR == true,
             deliveryMode: deliveryMode,
-            inputFileSizeBytes: selectedFileSizeBytes
+            inputFileSizeBytes: selectedFileSizeBytes,
+            usesSubagents: subagentModeIsActive
         )
     }
 
@@ -807,7 +806,8 @@ final class AppViewModel: ObservableObject {
                             maximumCoreCharacters: max(80_000, chunkSize * 300),
                             contextCount: 50
                         )),
-                        maximumConcurrentChunks: effectiveTranslationConcurrency
+                        maximumConcurrentChunks: effectiveTranslationConcurrency,
+                        preparedSubtitleCache: preparedSubtitleCache
                     )
                     let result = try await pipeline.run(
                         input: input,
@@ -1804,7 +1804,8 @@ final class AppViewModel: ObservableObject {
                 maximumCoreCharacters: max(80_000, chunkSize * 300),
                 contextCount: 50
             )),
-            maximumConcurrentChunks: effectiveTranslationConcurrency
+            maximumConcurrentChunks: effectiveTranslationConcurrency,
+            preparedSubtitleCache: preparedSubtitleCache
         )
         let movieContext = movie
         let requestedOutputMode = subtitleOutputMode

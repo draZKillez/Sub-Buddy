@@ -1,5 +1,36 @@
 import Foundation
 
+public enum TranslationItemIssue: String, Sendable {
+    case missing, duplicate, empty, sourceMismatch, tagsMismatch, lineBreakMismatch
+
+    var description: String {
+        switch self {
+        case .missing: return "缺少条目"
+        case .duplicate: return "ID 重复"
+        case .empty: return "译文为空"
+        case .sourceMismatch: return "返回的原文与该 ID 不一致"
+        case .tagsMismatch: return "格式标签不一致"
+        case .lineBreakMismatch: return "正文行数不一致"
+        }
+    }
+
+    var repairInstruction: String {
+        switch self {
+        case .missing: return "This ID was omitted. Return it."
+        case .duplicate: return "This ID appeared more than once. Return exactly one item."
+        case .empty: return "The translation was empty. Translate all of this cue."
+        case .sourceMismatch: return "Copy the exact source from CORE, including punctuation and real line breaks. Do not paraphrase source or borrow a neighboring cue."
+        case .tagsMismatch: return "Keep every original markup tag verbatim and in the same order."
+        case .lineBreakMismatch: return "Translate each source line separately within this same ID. Keep the same number of nonempty lines; use JSON newline escapes, not literal backslash+n. Do not merge lines."
+        }
+    }
+}
+
+public struct AlignedTranslationResult: Sendable {
+    public let response: TranslationResponse
+    public let issues: [Int: TranslationItemIssue]
+}
+
 public struct TranslationValidator: Sendable {
     public init() {}
 
@@ -10,6 +41,15 @@ public struct TranslationValidator: Sendable {
         expectedCues: [SubtitleCue],
         requiresSourceEcho: Bool
     ) throws -> TranslationResponse {
+        try assessAlignment(rawJSON: rawJSON, expectedCues: expectedCues,
+                            requiresSourceEcho: requiresSourceEcho).response
+    }
+
+    public func assessAlignment(
+        rawJSON: String,
+        expectedCues: [SubtitleCue],
+        requiresSourceEcho: Bool
+    ) throws -> AlignedTranslationResult {
         let data = Data(rawJSON.utf8)
         try validateStrictShape(data)
         let response: TranslationResponse
@@ -25,21 +65,30 @@ public struct TranslationValidator: Sendable {
         guard extra.isEmpty else {
             throw AppError.invalidTranslation("出现非核心块 ID：\(extra.map(String.init).joined(separator: ", "))。")
         }
+        var issues = Dictionary(uniqueKeysWithValues: sources.keys.map { ($0, TranslationItemIssue.missing) })
         let items = response.items.compactMap { item -> TranslationItem? in
-            guard counts[item.id] == 1, let source = sources[item.id],
-                  !item.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+            guard let source = sources[item.id] else { return nil }
+            guard counts[item.id] == 1 else { issues[item.id] = .duplicate; return nil }
+            guard !item.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                issues[item.id] = .empty; return nil
+            }
             if requiresSourceEcho || item.source != nil {
-                guard item.source == source else { return nil }
+                guard item.source == source else { issues[item.id] = .sourceMismatch; return nil }
             }
             let text = Self.normalizeLineBreaks(item.text, source: source)
-            if requiresSourceEcho && !Self.preservesFormatting(text, source: source) { return nil }
+            if requiresSourceEcho, let issue = Self.formattingIssue(text, source: source) {
+                issues[item.id] = issue; return nil
+            }
+            issues.removeValue(forKey: item.id)
             return TranslationItem(
                 id: item.id,
                 text: text,
                 source: item.source
             )
         }
-        return TranslationResponse(items: items, glossaryUpdates: response.glossaryUpdates)
+        return AlignedTranslationResult(
+            response: TranslationResponse(items: items, glossaryUpdates: response.glossaryUpdates), issues: issues
+        )
     }
 
     private static let markup = try! NSRegularExpression(pattern: #"</?[^>\n]+>|\{\\[^}\n]*\}"#)
@@ -47,20 +96,27 @@ public struct TranslationValidator: Sendable {
     /// Do not silently accept lost styles or collapsed subtitle lines. This is
     /// a structural check, not an assertion that the translation is correct.
     static func preservesFormatting(_ text: String, source: String) -> Bool {
+        formattingIssue(text, source: source) == nil
+    }
+
+    private static func formattingIssue(_ text: String, source: String) -> TranslationItemIssue? {
         func tags(_ value: String) -> [String] {
             markup.matches(in: value, range: NSRange(value.startIndex..., in: value)).map {
                 (value as NSString).substring(with: $0.range)
             }
         }
-        func lineCount(_ value: String) -> Int {
-            value.replacingOccurrences(of: "\r\n", with: "\n")
+        guard tags(text) == tags(source) else { return .tagsMismatch }
+        guard lineCount(text) == lineCount(source) else { return .lineBreakMismatch }
+        return nil
+    }
+
+    static func lineCount(_ value: String) -> Int {
+        value.replacingOccurrences(of: "\r\n", with: "\n")
                 .replacingOccurrences(of: "\r", with: "\n")
                 .replacingOccurrences(of: #"\N"#, with: "\n")
                 .replacingOccurrences(of: #"\n"#, with: "\n")
                 .components(separatedBy: "\n")
                 .filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }.count
-        }
-        return tags(text) == tags(source) && lineCount(text) == lineCount(source)
     }
 
     /// Only repair double-escaped line breaks when the source really has line

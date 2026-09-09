@@ -166,6 +166,7 @@ public struct TranslationEngine: Sendable {
         }
         var updates: [GlossaryEntry] = []
         var lastFailure: String?
+        var itemIssues: [Int: TranslationItemIssue] = [:]
         // One normal request, then at most two progressively smaller recovery
         // rounds. Both character and cue limits apply to repairs.
         for round in 0..<3 {
@@ -177,7 +178,10 @@ public struct TranslationEngine: Sendable {
             if round == 0 {
                 batches = [pending]
             } else {
-                let limit = round == 1 ? 100 : 50
+                // Isolate a small stubborn tail without turning a large failed
+                // batch into hundreds of individual model requests.
+                let isolateTail = pending.count <= 8 && pending.contains { itemIssues[$0.id] != nil }
+                let limit = round == 1 ? 100 : (isolateTail ? 1 : 50)
                 batches = TranslationChunker(configuration: .init(
                     targetCoreCount: limit, maximumCoreCount: limit,
                     maximumCoreCharacters: round == 1 ? 30_000 : 15_000,
@@ -190,7 +194,8 @@ public struct TranslationEngine: Sendable {
                     chunk: recoveryChunk(for: cues, in: chunk),
                     movie: movie,
                     glossary: TranslationGlossary.merge(glossary, updates),
-                    previousInvalidOutput: round > 0 ? "Only the remaining IDs are requested. Check exact source binding, tags, line breaks, and nonempty text. Do not repeat already accepted items." : nil,
+                    previousInvalidOutput: round > 0 || !completedItems.isEmpty
+                        ? repairInstructions(for: cues, issues: itemIssues) : nil,
                     sourceLanguage: sourceLanguage,
                     targetLanguage: targetLanguage
                 )
@@ -199,8 +204,12 @@ public struct TranslationEngine: Sendable {
                 do {
                 if let streaming = provider as? StreamingTranslationProvider {
                     raw = try await streaming.translate(request) { partialJSON in
-                        guard let partial = try? validator.alignedPartial(rawJSON: partialJSON,
+                        guard let assessment = try? validator.assessAlignment(rawJSON: partialJSON,
                             expectedCues: cues, requiresSourceEcho: provider.requiresSourceEcho) else { return }
+                        for (id, issue) in assessment.issues where issue != .missing || itemIssues[id] == nil {
+                            itemIssues[id] = issue
+                        }
+                        let partial = assessment.response
                         let fresh = partial.items.filter { byID[$0.id] == nil }
                         guard !fresh.isEmpty else { return }
                         for item in fresh { byID[item.id] = item }
@@ -220,10 +229,14 @@ public struct TranslationEngine: Sendable {
                 try Task.checkCancellation()
                 let partial: TranslationResponse
                 do {
-                    partial = try validator.alignedPartial(
+                    let assessment = try validator.assessAlignment(
                         rawJSON: raw, expectedCues: cues,
                         requiresSourceEcho: provider.requiresSourceEcho
                     )
+                    partial = assessment.response
+                    for (id, issue) in assessment.issues where issue != .missing || itemIssues[id] == nil {
+                        itemIssues[id] = issue
+                    }
                 } catch {
                     lastFailure = error.localizedDescription
                     continue
@@ -239,14 +252,25 @@ public struct TranslationEngine: Sendable {
         let pendingIDs = expectedIDs.filter { byID[$0] == nil }
         guard pendingIDs.isEmpty else {
             let reason = lastFailure.map { " \($0)" } ?? ""
+            let details = pendingIDs.prefix(12).map { id in
+                "\(id)：\((itemIssues[id] ?? .missing).description)"
+            }.joined(separator: "；")
             throw AppError.invalidTranslation(
-                "缺失或原文对应无效的字幕 ID：\(pendingIDs.map(String.init).joined(separator: ", "))。已保存通过校验的条目，重试将只处理剩余条目。\(reason)"
+                "未通过校验的字幕：\(details)。已保存通过校验的条目，重试将只处理剩余条目。\(reason)"
             )
         }
         return try validator.validate(
             response: TranslationResponse(items: expectedIDs.compactMap { byID[$0] }, glossaryUpdates: updates),
             expectedIDs: expectedIDs
         )
+    }
+
+    private func repairInstructions(for cues: [SubtitleCue], issues: [Int: TranslationItemIssue]) -> String {
+        let details = cues.map { cue in
+            "ID \(cue.id): source has \(TranslationValidator.lineCount(cue.text)) nonempty line(s). " +
+                (issues[cue.id]?.repairInstruction ?? "Check exact source binding, tags, line breaks and nonempty text.")
+        }.joined(separator: "\n")
+        return "Only the remaining IDs are requested. Do not repeat accepted items. Fix the following local validation failures; do not change IDs or source.\n" + details
     }
 
     private func recoveryChunk(for cues: [SubtitleCue], in original: TranslationChunk) -> TranslationChunk {

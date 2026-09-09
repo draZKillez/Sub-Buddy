@@ -2,6 +2,110 @@ import XCTest
 @testable import MKVSubtitleCore
 
 final class TimingAndBatchTests: XCTestCase {
+    func testCoordinatorPartialResultsProducePhaseAndOverallETA() throws {
+        let start = Date(timeIntervalSince1970: 1_000)
+        var estimator = JobTimingEstimator()
+        estimator.start(at: start)
+        estimator.update(PipelineProgress(
+            phase: .translating, completedChunks: 0, totalChunks: 1,
+            completedItems: 0, totalItems: 1_344
+        ), at: start)
+        let partial = PipelineProgress(
+            phase: .translating, completedChunks: 0, totalChunks: 1,
+            completedItems: 893, totalItems: 1_344
+        )
+        let now = start.addingTimeInterval(623)
+        estimator.update(partial, at: now)
+        let phase = try XCTUnwrap(estimator.estimatedRemaining(at: now))
+        let seconds = 623.0 * 451 / 893
+        XCTAssertEqual(phase.lowerBound, seconds * 0.65, accuracy: 0.001)
+        XCTAssertEqual(phase.upperBound, seconds * 1.35 + 5, accuracy: 0.001)
+
+        let overall = try XCTUnwrap(OverallWorkflowTimingEstimator().estimatedRemaining(
+            progress: partial, currentPhaseRemaining: phase,
+            translationProfile: .codexLuna, chunkSize: 200,
+            mediaDurationSeconds: nil, usesOCR: false,
+            deliveryMode: .sidecarSRT, inputFileSizeBytes: nil, usesSubagents: true
+        ))
+        XCTAssertEqual(overall.lowerBound, phase.lowerBound + 1, accuracy: 0.001)
+        XCTAssertEqual(overall.upperBound, phase.upperBound + 10, accuracy: 0.001)
+    }
+
+    func testRestoredItemsAreNotCountedAsNewTranslationSpeed() throws {
+        let start = Date(timeIntervalSince1970: 1_000)
+        var estimator = JobTimingEstimator()
+        estimator.update(PipelineProgress(
+            phase: .extracting, completedChunks: 0, totalChunks: 0
+        ), at: start.addingTimeInterval(-600))
+        let restored = PipelineProgress(
+            phase: .translating, completedChunks: 0, totalChunks: 1,
+            completedItems: 800, totalItems: 1_000
+        )
+        estimator.update(restored, at: start)
+        estimator.update(restored, at: start.addingTimeInterval(30))
+        XCTAssertNil(estimator.estimatedRemaining(at: start.addingTimeInterval(30)))
+        estimator.update(PipelineProgress(
+            phase: .translating, completedChunks: 0, totalChunks: 1,
+            completedItems: 900, totalItems: 1_000
+        ), at: start.addingTimeInterval(60))
+        let result = try XCTUnwrap(estimator.estimatedRemaining(at: start.addingTimeInterval(60)))
+        XCTAssertEqual(result.lowerBound, 60 * 0.65, accuracy: 0.001)
+        XCTAssertEqual(result.upperBound, 60 * 1.35 + 5, accuracy: 0.001)
+
+        // A stalled/retrying worker must not make the estimate count down to zero.
+        let stalled = try XCTUnwrap(estimator.estimatedRemaining(at: start.addingTimeInterval(120)))
+        XCTAssertGreaterThan(stalled.upperBound, result.upperBound)
+    }
+
+    func testTranslationETAUsesItemCountsForUnequalBatchesAndResetsBetweenJobs() throws {
+        let start = Date(timeIntervalSince1970: 1_000)
+        var estimator = JobTimingEstimator()
+        estimator.update(PipelineProgress(
+            phase: .translating, completedChunks: 0, totalChunks: 2,
+            completedItems: 0, totalItems: 1_000
+        ), at: start)
+        estimator.update(PipelineProgress(
+            phase: .translating, completedChunks: 1, totalChunks: 2,
+            completedItems: 900, totalItems: 1_000
+        ), at: start.addingTimeInterval(90))
+        let result = try XCTUnwrap(estimator.estimatedRemaining(at: start.addingTimeInterval(90)))
+        XCTAssertEqual(result.lowerBound, 6.5, accuracy: 0.001)
+        estimator.update(PipelineProgress(
+            phase: .translating, completedChunks: 2, totalChunks: 2,
+            completedItems: 1_000, totalItems: 1_000
+        ), at: start.addingTimeInterval(100))
+        XCTAssertNil(estimator.estimatedRemaining(at: start.addingTimeInterval(100)))
+        estimator.start(at: start.addingTimeInterval(200))
+        XCTAssertNil(estimator.estimatedRemaining(at: start.addingTimeInterval(200)))
+    }
+
+    func testChunkOnlyProgressStillProducesETA() throws {
+        let start = Date(timeIntervalSince1970: 1_000)
+        var estimator = JobTimingEstimator()
+        estimator.update(PipelineProgress(phase: .translating, completedChunks: 2, totalChunks: 4), at: start)
+        estimator.update(PipelineProgress(phase: .translating, completedChunks: 3, totalChunks: 4), at: start.addingTimeInterval(60))
+        let result = try XCTUnwrap(estimator.estimatedRemaining(at: start.addingTimeInterval(60)))
+        XCTAssertEqual(result.lowerBound, 39, accuracy: 0.001)
+    }
+
+    func testCoordinatorDoesNotUseSerialBatchHeuristicsBeforeMeasuredProgress() {
+        let estimator = OverallWorkflowTimingEstimator()
+        for phase in [PipelineProgress.Phase.extracting, .ocr, .translating] {
+            XCTAssertNil(estimator.estimatedRemaining(
+                progress: PipelineProgress(phase: phase, completedChunks: 0, totalChunks: 1),
+                currentPhaseRemaining: nil, translationProfile: .codexLuna,
+                chunkSize: 200, mediaDurationSeconds: nil, usesOCR: false,
+                deliveryMode: .sidecarSRT, inputFileSizeBytes: nil, usesSubagents: true
+            ))
+        }
+        XCTAssertNotNil(estimator.estimatedRemaining(
+            progress: PipelineProgress(phase: .writingSubtitle, completedChunks: 1, totalChunks: 1),
+            currentPhaseRemaining: nil, translationProfile: .codexLuna,
+            chunkSize: 200, mediaDurationSeconds: nil, usesOCR: false,
+            deliveryMode: .sidecarSRT, inputFileSizeBytes: nil, usesSubagents: true
+        ))
+    }
+
     func testFolderScanHonorsCancellationBeforeEnumeration() async {
         let task = Task {
             withUnsafeCurrentTask { $0?.cancel() }
