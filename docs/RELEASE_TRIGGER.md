@@ -1,5 +1,13 @@
 # Explicit release trigger / 显式发布入口
 
+## Public release notes / 对外更新说明
+
+Keep release notes brief and bilingual (Chinese and English). Describe user-facing improvements in plain language, such as improved translation stability, clearer interactions, or new features. Do not include internal test counts, build/validation reports, debugging details, or implementation jargon. Report those details separately to the maintainer. Disclose user-impacting limitations when necessary, in plain language.
+
+对外更新日志保持简短、中英双语，只写用户能理解的功能改进，例如提升翻译稳定性、改善交互或更新功能。不要放测试数量、构建与验证报告、排查过程和技术术语，这些单独向维护者汇报；确实影响用户使用的限制仍需用通俗语言说明。
+
+## Publishing / 发布流程
+
 The existing GitHub Actions release workflow can be run manually with a version and increasing build number. Alternatively, update `Packaging/ReleaseVersion.json` on `main` in the same commit as the release changes. Only changes to that file trigger a push release; ordinary code edits do not.
 
 现有发布工作流仍支持手动填写版本号和递增构建号。也可以在提交正式版本代码时，一并修改 `main` 分支上的 `Packaging/ReleaseVersion.json`。只有修改该文件才会触发推送发布，普通代码修改不会触发。
