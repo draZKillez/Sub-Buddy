@@ -110,6 +110,7 @@ public final class TranslationPipeline: @unchecked Sendable {
         guard deliveryMode == .sidecarSRT || MediaFileSupport.canRemux(input) else {
             throw AppError.invalidMedia("该视频格式请使用独立 SRT 输出；重新封装目前仅支持 MKV。")
         }
+        try validateDestination(input: input, output: output, overwrite: overwrite)
         let temporaryRoot = fileManager.temporaryDirectory
             .appendingPathComponent("MKVSubtitleTranslator", isDirectory: true)
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
@@ -301,6 +302,13 @@ public final class TranslationPipeline: @unchecked Sendable {
                 document.cues[index].assFields = nil
             }
             let srtDocument = SubtitleDocument(format: .srt, cues: document.cues)
+            if let preparationKey {
+                let currentKey = try PreparedSubtitleCache.Key(input: input, track: track, sourceLanguage: sourceLanguage)
+                guard currentKey == preparationKey else {
+                    throw AppError.invalidMedia("视频文件在处理期间发生变化，请重新选择文件。")
+                }
+            }
+            try validateDestination(input: input, output: output, overwrite: overwrite)
             progress(PipelineProgress(
                 phase: .writingSubtitle,
                 completedChunks: chunks.count,
@@ -311,9 +319,10 @@ public final class TranslationPipeline: @unchecked Sendable {
             ))
             if deliveryMode == .sidecarSRT {
                 if fileManager.fileExists(atPath: output.path) && !overwrite { throw AppError.outputExists(output) }
-                guard input.standardizedFileURL != output.standardizedFileURL else { throw AppError.originalOverwriteForbidden }
                 try writer.write(srtDocument, to: output, overwrite: overwrite)
-                try await jobStore.clear(input: input, trackIndex: track.streamIndex)
+                // The output has committed successfully. Cache cleanup failure
+                // must not report a failed translation or invite a destructive retry.
+                try? await jobStore.clear(input: input, trackIndex: track.streamIndex)
                 progress(PipelineProgress(
                     phase: .completed,
                     completedChunks: chunks.count,
@@ -365,7 +374,7 @@ public final class TranslationPipeline: @unchecked Sendable {
                     totalItems: muxCueCount
                 ))
             }
-            try await jobStore.clear(input: input, trackIndex: track.streamIndex)
+            try? await jobStore.clear(input: input, trackIndex: track.streamIndex)
             progress(PipelineProgress(
                 phase: .completed,
                 completedChunks: chunks.count,
@@ -379,6 +388,23 @@ public final class TranslationPipeline: @unchecked Sendable {
         } catch is CancellationError {
             throw AppError.cancelled
         }
+    }
+
+    private func validateDestination(input: URL, output: URL, overwrite: Bool) throws {
+        guard output.isFileURL, input.isFileURL else { throw AppError.invalidMedia("请选择本地视频和输出位置。") }
+        guard !FileSafety.refersToSameFile(input, output, fileManager: fileManager) else {
+            throw AppError.originalOverwriteForbidden
+        }
+        var isDirectory: ObjCBool = false
+        if fileManager.fileExists(atPath: output.path, isDirectory: &isDirectory) {
+            if isDirectory.boolValue { throw CocoaError(.fileWriteInvalidFileName) }
+            if !overwrite { throw AppError.outputExists(output) }
+        }
+        let parent = output.deletingLastPathComponent()
+        guard fileManager.fileExists(atPath: parent.path, isDirectory: &isDirectory), isDirectory.boolValue else {
+            throw CocoaError(.fileNoSuchFile)
+        }
+        guard fileManager.isWritableFile(atPath: parent.path) else { throw CocoaError(.fileWriteNoPermission) }
     }
 
     private static func srtText(_ text: String, sourceFormat: SubtitleFormat) -> String {

@@ -158,8 +158,10 @@ public struct WhisperModelStore: Sendable {
         return destination
     }
 
-    private static func verify(_ url: URL, model: WhisperModel) async throws {
-        try await Task.detached(priority: .utility) {
+    static func verify(_ url: URL, model: WhisperModel) async throws {
+        try Task.checkCancellation()
+        let worker = Task.detached(priority: .utility) {
+            try Task.checkCancellation()
             let attributes = try FileManager.default.attributesOfItem(atPath: url.path)
             guard let size = attributes[.size] as? NSNumber,
                   size.int64Value == model.expectedByteCount else {
@@ -176,7 +178,13 @@ public struct WhisperModelStore: Sendable {
             guard digest == model.expectedSHA1 else {
                 throw AppError.modelDownload("SHA-1 校验失败，文件可能损坏或被替换。请重新下载。")
             }
-        }.value
+        }
+        try await withTaskCancellationHandler {
+            try await worker.value
+            try Task.checkCancellation()
+        } onCancel: {
+            worker.cancel()
+        }
     }
 }
 

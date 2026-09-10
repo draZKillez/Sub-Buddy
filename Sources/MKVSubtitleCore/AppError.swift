@@ -12,6 +12,7 @@ public enum AppError: LocalizedError, Equatable {
     case codexModelUnavailable(String)
     case codexQuotaUnavailable
     case codexServiceUnavailable
+    case codexInvalidRequest
     case localTranslationUnavailable(String)
     case invalidTranslation(String)
     case manualSubtitleFormat(String)
@@ -32,6 +33,7 @@ public enum AppError: LocalizedError, Equatable {
         case let .codexModelUnavailable(model): return "模型 \(model) 当前不可用。请确认该模型已对当前 ChatGPT 工作区开放；应用不会自动切换到其他模型。"
         case .codexQuotaUnavailable: return "当前 Codex 额度已用尽或暂不可用。请稍后重试或检查 ChatGPT 套餐额度。"
         case .codexServiceUnavailable: return "Codex 服务暂时不可用。请检查网络或服务状态后重试。"
+        case .codexInvalidRequest: return "Codex 拒绝了应用生成的请求格式。已保存的译文不受影响，请更新 Sub Buddy；重复翻译不能解决此错误。"
         case let .localTranslationUnavailable(message): return "Apple 本地翻译不可用：\(message)"
         case let .invalidTranslation(message): return "模型返回格式无效：\(message)"
         case let .manualSubtitleFormat(message): return "手动字幕格式无效：\(message)"

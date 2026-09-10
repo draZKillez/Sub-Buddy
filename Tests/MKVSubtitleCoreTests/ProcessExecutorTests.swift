@@ -2,6 +2,16 @@ import XCTest
 @testable import MKVSubtitleCore
 
 final class ProcessExecutorTests: XCTestCase {
+    func testExitedParentDoesNotWaitForDescendantToCloseOutputPipe() async throws {
+        let start = Date()
+        let script = "import os,time\nif os.fork()==0:\n time.sleep(4)\n os._exit(0)\nos.write(1,b'parent finished')\nos._exit(0)"
+        let result = try await ProcessExecutor().run(
+            executable: URL(fileURLWithPath: "/usr/bin/python3"), arguments: ["-c", script], standardInput: nil
+        )
+        XCTAssertEqual(result.standardOutput, "parent finished")
+        XCTAssertLessThan(Date().timeIntervalSince(start), 3, "EOF drain must not wait for an inherited pipe")
+    }
+
     func testByteStreamIncludesUTF8AndFinalEOFTailExactlyOnce() async throws {
         let bytes = CapturedProcessBytes()
         let payload = String(repeating: "你好🌍日本語\n", count: 5_000) + "最后一行"

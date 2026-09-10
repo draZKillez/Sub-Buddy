@@ -160,7 +160,10 @@ public struct TranslationEngine: Sendable {
         }
         var byID: [Int: TranslationItem] = [:]
         for cue in chunk.core {
-            if let text = completedItems[cue.id], !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            if let saved = completedItems[cue.id] {
+                let text = TranslationValidator.normalizeLineBreaks(saved, source: cue.text)
+                guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                      !provider.requiresSourceEcho || TranslationValidator.preservesFormatting(text, source: cue.text) else { continue }
                 byID[cue.id] = TranslationItem(id: cue.id, text: text)
             }
         }
@@ -241,12 +244,13 @@ public struct TranslationEngine: Sendable {
                     lastFailure = error.localizedDescription
                     continue
                 }
-                guard !partial.items.isEmpty else { continue }
-                for item in partial.items { byID[item.id] = item }
+                let fresh = partial.items.filter { byID[$0.id] == nil }
+                guard !fresh.isEmpty else { continue }
+                for item in fresh { byID[item.id] = item }
                 updates = TranslationGlossary.merge(updates, partial.glossaryUpdates)
                 // Persist outside the parse-error catch: storage errors and
                 // cancellation must not be mistaken for model format failures.
-                try await onValidated(partial)
+                try await onValidated(TranslationResponse(items: fresh, glossaryUpdates: partial.glossaryUpdates))
             }
         }
         let pendingIDs = expectedIDs.filter { byID[$0] == nil }

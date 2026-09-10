@@ -4,12 +4,9 @@ import Foundation
 /// complete IDs, exact source binding, nonempty text and subtitle formatting.
 public enum TranslationOutputSchema {
     public static func data(for cues: [SubtitleCue]) throws -> Data {
-        var sourceSchema: [String: Any] = ["type": "string"]
-        if cues.count == 1 {
-            // Isolated repairs have exactly one possible source. Constrain it
-            // directly so punctuation/line-break paraphrases cannot recur.
-            sourceSchema["enum"] = [cues[0].text]
-        }
+        // Keep subtitle content in the prompt, never in enum/const schema
+        // literals: the service rejects e.g. newline-bearing string enums.
+        // Exact ID-to-source binding remains a mandatory local validation.
         let schema: [String: Any] = [
             "type": "object",
             "additionalProperties": false,
@@ -22,7 +19,7 @@ public enum TranslationOutputSchema {
                         "required": ["id", "source", "text"],
                         "properties": [
                             "id": ["type": "integer", "enum": cues.map(\.id)],
-                            "source": sourceSchema,
+                            "source": ["type": "string"],
                             "text": ["type": "string"]
                         ]
                     ]

@@ -69,9 +69,7 @@ public struct CodexJSONLParser: Sendable {
                 finalMessage = text
             }
             if type == "turn.failed" || type == "error" {
-                let message = (object["message"] as? String)
-                    ?? ((object["error"] as? [String: Any])?["message"] as? String)
-                    ?? "Codex 返回失败事件。"
+                let message = CodexFailureDetails.parse(String(line)).summary
                 throw AppError.processFailed(tool: "Codex", code: 1, message: message)
             }
         }
@@ -260,7 +258,11 @@ public final class CodexBridge: @unchecked Sendable {
     }
 
     private func classifyFailure(_ message: String, status: Int32) -> AppError {
-        let lowered = message.lowercased()
+        let details = CodexFailureDetails.parse(message)
+        let lowered = details.summary.lowercased()
+        if lowered.contains("invalid_json_schema") || lowered.contains("invalid schema") {
+            return .codexInvalidRequest
+        }
         if (lowered.contains("unknown") || lowered.contains("unexpected") || lowered.contains("unrecognized")) &&
             (lowered.contains("agents.") || lowered.contains("strict-config")) {
             return .toolMissing(name: "Codex subagents", guidance: "请更新 Codex CLI；此版本不支持官方子智能体配置，不会静默改用其他翻译方式。")
@@ -271,16 +273,17 @@ public final class CodexBridge: @unchecked Sendable {
         if lowered.contains("not logged") || lowered.contains("login required") || lowered.contains("authentication") || lowered.contains("unauthorized") {
             return .codexNotLoggedIn
         }
-        if lowered.contains("model") && (lowered.contains("not found") || lowered.contains("not available") || lowered.contains("unsupported") || lowered.contains("access")) {
-            return .codexModelUnavailable(model)
-        }
         if lowered.contains("quota") || lowered.contains("rate limit") || lowered.contains("rate_limit") || lowered.contains("429") || lowered.contains("usage limit") || lowered.contains("credits") {
             return .codexQuotaUnavailable
         }
+        if lowered.contains("model") && (lowered.contains("not found") || lowered.contains("not available") || lowered.contains("unsupported") || lowered.contains("access")) {
+            return .codexModelUnavailable(model)
+        }
+        if lowered.contains("invalid_request_error") { return .codexInvalidRequest }
         if lowered.contains("service unavailable") || lowered.contains("temporarily unavailable") || lowered.contains("connection") || lowered.contains("network") {
             return .codexServiceUnavailable
         }
-        return .processFailed(tool: "Codex", code: status, message: message.trimmingCharacters(in: .whitespacesAndNewlines))
+        return .processFailed(tool: "Codex", code: status, message: details.summary)
     }
 }
 

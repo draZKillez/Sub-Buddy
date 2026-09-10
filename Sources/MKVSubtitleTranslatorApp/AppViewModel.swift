@@ -294,7 +294,8 @@ final class AppViewModel: ObservableObject {
     var selectedTranslationProviderIsReady: Bool {
         switch workflowMode {
         case .automatic:
-            return codexStatus == .loggedIn && codexSelectionIsValid
+            return codexStatus == .loggedIn && codexSelectionIsValid &&
+                errorMessage != AppError.codexInvalidRequest.localizedDescription
         case .appleLocal:
             return appleLocalTranslationStatus.isReady
         case .manual:
@@ -637,9 +638,14 @@ final class AppViewModel: ObservableObject {
                 if selectionGeneration == generation { isScanningFolder = false }
             }
             do {
-                let urls = try await Task.detached(priority: .userInitiated) {
+                let scan = Task.detached(priority: .userInitiated) {
                     try MKVFolderScanner().scan(url)
-                }.value
+                }
+                let urls = try await withTaskCancellationHandler {
+                    try await scan.value
+                } onCancel: {
+                    scan.cancel()
+                }
                 try Task.checkCancellation()
                 guard selectionGeneration == generation else { return }
                 guard !urls.isEmpty else {
@@ -2217,7 +2223,7 @@ final class AppViewModel: ObservableObject {
 
     private static func isBlockingCodexError(_ error: AppError) -> Bool {
         switch error {
-        case .codexNotLoggedIn, .codexModelUnavailable(_), .codexQuotaUnavailable, .codexServiceUnavailable:
+        case .codexNotLoggedIn, .codexModelUnavailable(_), .codexQuotaUnavailable, .codexServiceUnavailable, .codexInvalidRequest:
             return true
         default:
             return false

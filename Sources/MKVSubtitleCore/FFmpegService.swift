@@ -357,7 +357,7 @@ public final class FFmpegService: @unchecked Sendable {
     }
 }
 
-private enum FileSafety {
+enum FileSafety {
     static func refersToSameFile(
         _ first: URL,
         _ second: URL,

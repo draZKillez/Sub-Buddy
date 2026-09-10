@@ -1224,12 +1224,13 @@ struct ContentView: View {
                 } else {
                     HStack {
                         Label(
-                            viewModel.selectedTranslationProviderIsReady ? "已准备好开始" : "翻译服务尚未就绪",
-                            systemImage: viewModel.selectedTranslationProviderIsReady
+                            viewModel.errorMessage != nil ? "需要处理" :
+                                (viewModel.selectedTranslationProviderIsReady ? "已准备好开始" : "翻译服务尚未就绪"),
+                            systemImage: viewModel.selectedTranslationProviderIsReady && viewModel.errorMessage == nil
                                 ? "checkmark.circle.fill"
                                 : "exclamationmark.triangle.fill"
                         )
-                        .foregroundStyle(viewModel.selectedTranslationProviderIsReady ? Color.green : Color.orange)
+                        .foregroundStyle(viewModel.selectedTranslationProviderIsReady && viewModel.errorMessage == nil ? Color.green : Color.orange)
                         Spacer()
                         Button(viewModel.deliveryMode == .sidecarSRT ? "开始翻译并生成 SRT" : "开始翻译并封装") {
                             viewModel.requestTranslation()

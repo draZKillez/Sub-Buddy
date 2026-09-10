@@ -2,7 +2,31 @@ import XCTest
 @testable import MKVSubtitleCore
 
 final class TargetedRepairTests: XCTestCase {
-    func testSingleCueRepairSchemaPinsExactOriginalSource() throws {
+    func testFinalSummaryDoesNotOverwriteOrResaveAcceptedStreamingItems() async throws {
+        let cues = [1, 2].map { SubtitleCue(id: $0, startMilliseconds: 0, endMilliseconds: 1000, text: "Hello \($0)") }
+        var saved: [[Int]] = []
+        let result = try await TranslationEngine(provider: RepeatedStreamingProvider()).translate(
+            chunk: .init(index: 0, core: cues, previousContext: [], nextContext: []),
+            movie: .init(originalTitle: "Test"), glossary: [],
+            onValidated: { saved.append($0.items.map(\.id)) }
+        )
+        XCTAssertEqual(saved, [[1], [2]])
+        XCTAssertEqual(result.items.first?.text, "已保存")
+    }
+
+    func testInvalidSavedFormattingIsRepairedInsteadOfBypassingValidation() async throws {
+        let cue = SubtitleCue(id: 99, startMilliseconds: 0, endMilliseconds: 1000, text: "First\nSecond")
+        let provider = LineRepairProvider()
+        let result = try await TranslationEngine(provider: provider).translate(
+            chunk: .init(index: 0, core: [cue], previousContext: [], nextContext: []),
+            movie: .init(originalTitle: "Test"), glossary: [], completedItems: [99: "错误的一行"]
+        )
+        XCTAssertEqual(result.items.first?.text, "第一行\n第二行")
+        let requests = await provider.requests
+        XCTAssertEqual(requests.count, 1)
+    }
+
+    func testSingleCueRepairSchemaNeverEmbedsMultilineSourceAsEnum() throws {
         let cue = SubtitleCue(id: 99, startMilliseconds: 0, endMilliseconds: 1000, text: "First\nSecond...")
         let root = try XCTUnwrap(JSONSerialization.jsonObject(with: TranslationOutputSchema.data(for: [cue])) as? [String: Any])
         let properties = try XCTUnwrap(root["properties"] as? [String: Any])
@@ -10,7 +34,12 @@ final class TargetedRepairTests: XCTestCase {
         let item = try XCTUnwrap(array["items"] as? [String: Any])
         let fields = try XCTUnwrap(item["properties"] as? [String: Any])
         let source = try XCTUnwrap(fields["source"] as? [String: Any])
-        XCTAssertEqual(source["enum"] as? [String], [cue.text])
+        XCTAssertEqual(source["type"] as? String, "string")
+        XCTAssertNil(source["enum"])
+        XCTAssertNil(source["const"])
+        let wrong = #"{"items":[{"id":99,"source":"wrong source","text":"第一\n第二"}],"glossary_updates":[]}"#
+        let assessment = try TranslationValidator().assessAlignment(rawJSON: wrong, expectedCues: [cue], requiresSourceEcho: true)
+        XCTAssertEqual(assessment.issues[99], .sourceMismatch, "Removing an unsupported enum must not weaken local alignment")
     }
 
     /// Explicit local opt-in; CI never consumes an account or reads user media.
@@ -23,17 +52,21 @@ final class TargetedRepairTests: XCTestCase {
         let cues = document.cues.filter { [99, 106].contains($0.id) }
         XCTAssertEqual(cues.count, 2)
         let provider = CodexSubagentTranslationProvider(bridge: CodexBridge(codexURL: URL(fileURLWithPath: executable)))
-        let response = try await TranslationEngine(provider: provider).translate(
-            chunk: .init(index: 0, core: cues,
-                         previousContext: document.cues.filter { (89...98).contains($0.id) },
-                         nextContext: document.cues.filter { (107...116).contains($0.id) }),
-            movie: .init(originalTitle: "Hoppers"), glossary: []
-        )
-        XCTAssertEqual(response.items.map(\.id), [99, 106])
-        for item in response.items {
-            let cue = try XCTUnwrap(cues.first { $0.id == item.id })
-            XCTAssertEqual(item.source, cue.text)
-            XCTAssertTrue(TranslationValidator.preservesFormatting(item.text, source: cue.text))
+        // Exercise an isolated repair as well as the original two-item batch;
+        // 0.9.3's incompatible source enum only existed for one-item requests.
+        for selected in [cues, Array(cues.prefix(1))] {
+            let response = try await TranslationEngine(provider: provider).translate(
+                chunk: .init(index: 0, core: selected,
+                             previousContext: document.cues.filter { (89...98).contains($0.id) },
+                             nextContext: document.cues.filter { (107...116).contains($0.id) }),
+                movie: .init(originalTitle: "Hoppers"), glossary: []
+            )
+            XCTAssertEqual(response.items.map(\.id), selected.map(\.id))
+            for item in response.items {
+                let cue = try XCTUnwrap(cues.first { $0.id == item.id })
+                XCTAssertEqual(item.source, cue.text)
+                XCTAssertTrue(TranslationValidator.preservesFormatting(item.text, source: cue.text))
+            }
         }
     }
 
@@ -66,6 +99,17 @@ final class TargetedRepairTests: XCTestCase {
         XCTAssertTrue(requests.dropFirst().allSatisfy { $0.previousInvalidOutput?.contains("2 nonempty line(s)") == true })
         XCTAssertTrue(requests.allSatisfy { $0.targetLanguage == .japanese })
         XCTAssertEqual(result.items.map(\.id), [99, 106])
+    }
+}
+
+private struct RepeatedStreamingProvider: StreamingTranslationProvider {
+    var requiresSourceEcho: Bool { true }
+    func translate(_ request: TranslationRequest) async throws -> String {
+        try await translate(request, onPartial: { _ in })
+    }
+    func translate(_ request: TranslationRequest, onPartial: (String) async throws -> Void) async throws -> String {
+        try await onPartial(#"{"items":[{"id":1,"source":"Hello 1","text":"已保存"}]}"#)
+        return #"{"items":[{"id":1,"source":"Hello 1","text":"最终汇总改写"},{"id":2,"source":"Hello 2","text":"第二条"}]}"#
     }
 }
 

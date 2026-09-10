@@ -157,7 +157,30 @@ private final class SerializedPipeReader: @unchecked Sendable {
         lock.lock(); defer { lock.unlock() }
         guard !finished else { return }
         finished = true
+        #if canImport(Darwin)
+        // A descendant may inherit stdout after the launched parent exits.
+        // readToEnd() would wait for that descendant forever, defeating our
+        // cancellation/timeout. Drain only bytes already available, bounded.
+        let descriptor = handle.fileDescriptor
+        let flags = fcntl(descriptor, F_GETFL)
+        guard flags >= 0, fcntl(descriptor, F_SETFL, flags | O_NONBLOCK) >= 0 else { return }
+        defer { _ = fcntl(descriptor, F_SETFL, flags) }
+        var buffer = [UInt8](repeating: 0, count: 64 * 1_024)
+        var drained = 0
+        while drained < 32 * 1_024 * 1_024 {
+            let count = buffer.withUnsafeMutableBytes { Darwin.read(descriptor, $0.baseAddress, $0.count) }
+            if count > 0 {
+                drained += count
+                receive(Data(buffer.prefix(count)))
+            } else if count < 0, errno == EINTR {
+                continue
+            } else {
+                break
+            }
+        }
+        #else
         if let data = try? handle.readToEnd(), !data.isEmpty { receive(data) }
+        #endif
     }
 }
 
