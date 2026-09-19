@@ -36,11 +36,29 @@ final class SubagentTranslationTests: XCTestCase {
         XCTAssertTrue(tasks.allSatisfy { !$0.chunk.core.isEmpty && $0.chunk.core.reduce(0, { $0 + $1.text.count }) <= 30_000 })
     }
 
-    func testLowestSupportedReasoningAndNoneWhenOff() {
-        XCTAssertEqual(CodexTranslationReasoningPolicy.effort(subagents: false, supported: [.low]), CodexReasoningEffort.none)
+    func testLowestSupportedReasoningInBothModes() {
+        XCTAssertEqual(CodexTranslationReasoningPolicy.effort(subagents: false, supported: [.low]), .low)
+        XCTAssertEqual(CodexTranslationReasoningPolicy.effort(subagents: false, supported: [.high,.none,.low]), CodexReasoningEffort.none)
         XCTAssertEqual(CodexTranslationReasoningPolicy.effort(subagents: true, supported: [.none,.high,.low]), .low)
         XCTAssertEqual(CodexTranslationReasoningPolicy.effort(subagents: true, supported: [.minimal,.low]), .minimal)
         XCTAssertNil(CodexTranslationReasoningPolicy.effort(subagents: true, supported: [.none]))
+        XCTAssertNil(CodexTranslationReasoningPolicy.effort(subagents: false, supported: []))
+    }
+
+    func testRefreshRetainsValidEffortAndReplacesUnsupportedSelection() {
+        for subagents in [false, true] {
+            XCTAssertEqual(CodexTranslationReasoningPolicy.effort(subagents: subagents, supported: [.low, .high], selected: .high), .high)
+            XCTAssertEqual(CodexTranslationReasoningPolicy.effort(subagents: subagents, supported: [.low, .medium], selected: .high), .low)
+            XCTAssertEqual(CodexTranslationReasoningPolicy.effort(subagents: subagents, supported: [.low, .medium], selected: CodexReasoningEffort.none), .low)
+        }
+        XCTAssertEqual(CodexTranslationReasoningPolicy.options(subagents: true, supported: [.high,.none,.low,.high]), [.low,.high])
+    }
+
+    func testCoordinatorPromptPreservesUserEffortInsteadOfForcingLow() throws {
+        let provider = CodexSubagentTranslationProvider(bridge: .init(codexURL: nil, model: "gpt-5.5", reasoningEffort: .high))
+        let prompt = provider.buildPrompt(try CodexSubtitleTaskPlanner.tasks(for: request(cues(301))))
+        XCTAssertTrue(prompt.contains("same model gpt-5.5 and reasoning effort high"))
+        XCTAssertTrue(prompt.contains("Do not override the model, effort or sandbox"))
     }
 
     func testRollingQueueOutOfOrderAndDuplicateResults() throws {
@@ -111,7 +129,7 @@ final class SubagentTranslationTests: XCTestCase {
         let source = cues(601)
         let tasks = try CodexSubtitleTaskPlanner.tasks(for: request(source))
         let executor = AgentExecutor(output: try transcript(tasks))
-        let provider = CodexSubagentTranslationProvider(bridge: .init(codexURL: URL(fileURLWithPath:"/test/codex"), reasoningEffort:.low, executor:executor))
+        let provider = CodexSubagentTranslationProvider(bridge: .init(codexURL: URL(fileURLWithPath:"/test/codex"), reasoningEffort:.high, executor:executor))
         var accepted = 0
         let raw = try await provider.translate(request(source)) { partial in
             accepted += try TranslationValidator().validatePartial(rawJSON:partial, expectedIDs:Array(1...601)).items.count
@@ -121,7 +139,8 @@ final class SubagentTranslationTests: XCTestCase {
         let (calls,args,input) = await executor.snapshot()
         XCTAssertEqual(calls, 1)
         XCTAssertTrue(args.contains("agents.max_concurrent_threads_per_session=2"))
-        XCTAssertTrue(args.contains("agents.default_subagent_reasoning_effort=\"low\""))
+        XCTAssertTrue(args.contains("agents.default_subagent_reasoning_effort=\"high\""))
+        XCTAssertTrue(args.contains("model_reasoning_effort=\"high\""))
         XCTAssertTrue(input.contains("ONLY the coordinator"))
         XCTAssertTrue(input.contains("Japanese"))
         XCTAssertEqual(provider.maximumConcurrentBatches, 1)

@@ -996,7 +996,7 @@ struct ContentView: View {
                             }
                             .labelsHidden()
                             .frame(width: 260)
-                            .disabled(viewModel.isWorking)
+                            .disabled(viewModel.isWorking || viewModel.isRefreshingModels)
                             .onChange(of: viewModel.codexModel) { _, _ in
                                 viewModel.codexModelDidChange()
                             }
@@ -1004,19 +1004,17 @@ struct ContentView: View {
                         }
                     }
                     LabeledContent("推理强度") {
-                        if viewModel.subagentModeIsActive {
-                            Text(viewModel.minimumSubagentEffort?.rawValue ?? "—")
+                        if viewModel.availableReasoningEfforts.isEmpty {
+                            Text("请刷新模型列表").foregroundStyle(.secondary)
                         } else {
                         Picker("推理强度", selection: $viewModel.codexReasoningEffort) {
-                            ForEach(Array(Set(viewModel.availableReasoningEfforts + [viewModel.codexReasoningEffort])).sorted {
-                                CodexReasoningEffort.allCases.firstIndex(of: $0)! < CodexReasoningEffort.allCases.firstIndex(of: $1)!
-                            }) { effort in
+                            ForEach(viewModel.availableReasoningEfforts) { effort in
                                 Text(effort.displayName).tag(effort)
                             }
                         }
                         .labelsHidden().frame(width: 330)
-                        .disabled(viewModel.isWorking)
-                        .onChange(of: viewModel.codexReasoningEffort) { _, _ in viewModel.codexModelDidChange() }
+                        .disabled(viewModel.isWorking || viewModel.isRefreshingModels)
+                        .onChange(of: viewModel.codexReasoningEffort) { _, _ in viewModel.codexReasoningDidChange() }
                         }
                     }
                     Text("较高推理强度可能增加耗时和额度消耗，不保证译文一定更好。刷新列表无效时，建议更新 Sub Buddy 和 Codex。")
@@ -1024,7 +1022,7 @@ struct ContentView: View {
                     if !viewModel.modelRefreshMessage.isEmpty {
                         Text(viewModel.modelRefreshMessage).font(.caption).foregroundStyle(.secondary)
                     }
-                    if !viewModel.codexSelectionIsValid {
+                    if !viewModel.isRefreshingModels && !viewModel.codexSelectionIsValid {
                         Label("当前模型或推理强度不在刷新后的支持列表中，请手动重新选择。", systemImage: "exclamationmark.triangle")
                             .font(.caption).foregroundStyle(.orange)
                     }
@@ -1076,7 +1074,7 @@ struct ContentView: View {
                 }
                 if viewModel.workflowMode == .automatic {
                     Toggle("子智能体协作", isOn: $viewModel.useCodexSubagents)
-                        .disabled(viewModel.isWorking)
+                        .disabled(viewModel.isWorking || viewModel.isRefreshingModels)
                         .onChange(of: viewModel.useCodexSubagents) { _, _ in viewModel.subagentModeDidChange() }
                     Text("适合长视频，消耗更多额度。")
                         .font(.caption).foregroundStyle(.secondary)
@@ -1085,7 +1083,7 @@ struct ContentView: View {
                     LabeledContent("任务分配") {
                         Text("动态分块，最多两个子任务；短字幕直接翻译。")
                     }
-                    Text("自动使用最低可用推理强度；字幕格式错误最多再试两次。")
+                    Text("默认使用最低可用推理强度，可手动调整；字幕格式错误最多再试两次。")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 } else {

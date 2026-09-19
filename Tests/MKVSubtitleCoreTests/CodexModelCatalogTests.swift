@@ -65,6 +65,14 @@ final class CodexModelCatalogTests: XCTestCase {
         catch { XCTAssertLessThan(Date().timeIntervalSince(start), 4) }
     }
 
+    func testTimeoutDoesNotWaitForInheritedPipeFromDescendant() async throws {
+        let url = try fixture("#!/bin/sh\nsleep 4 &\nread -r init\nread -r never\n")
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        let start = Date()
+        do { _ = try await CodexModelCatalog().refresh(executable: url, timeout: 0.2); XCTFail("Expected timeout") }
+        catch { XCTAssertLessThan(Date().timeIntervalSince(start), 2) }
+    }
+
     func testMissingCLIAndCancelledRefresh() async throws {
         do { _ = try await CodexModelCatalog().refresh(executable: nil); XCTFail("Expected missing CLI") }
         catch let error as AppError {

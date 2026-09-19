@@ -198,10 +198,11 @@
 "子智能体协作" = "Subagenten-Zusammenarbeit";
 "适合长视频，消耗更多额度。" = "Für lange Videos; verbraucht mehr Kontingent.";
 "动态分块，最多两个子任务；短字幕直接翻译。" = "Dynamische Stapel, bis zu zwei Teilaufgaben; kurze Untertitel direkt übersetzen.";
-"自动使用最低可用推理强度；字幕格式错误最多再试两次。" = "Niedrigste verfügbare Denkstufe; bis zu zwei Wiederholungen bei Untertitelformatfehlern.";
+"默认使用最低可用推理强度，可手动调整；字幕格式错误最多再试两次。" = "Standardmäßig wird die niedrigste unterstützte Denkstufe gewählt; sie ist anpassbar. Formatfehler werden bis zu zweimal erneut versucht.";
 "2 批（并发）" = "2 Stapel (parallel)";
 "默认每批 200 条、顺序翻译；可选两批并发。校验后保存，仅补翻失败条目，最多再试两次。额度或服务限制时暂停。" = "Standard: 200 Einträge je Stapel, nacheinander; optional zwei parallel. Geprüfte Einträge speichern, nur fehlerhafte bis zu zweimal wiederholen. Bei Kontingent- oder Dienstlimits pausieren.";
-"模型列表已刷新；保留当前模型，子智能体模式使用最低可用推理强度。" = "Modelle aktualisiert; aktuelles Modell beibehalten. Unteragenten nutzen die niedrigste unterstützte Reasoning-Stufe.";
+"模型列表已刷新；保留可用的推理强度选择。" = "Modelle aktualisiert; unterstützte Denkeinstellungen bleiben erhalten.";
+"请刷新模型列表" = "Bitte die Modellliste aktualisieren";
 "无法读取视频：%@" = "Video kann nicht gelesen werden: %@";
 "请选择 MKV、MP4、M4V、MOV 或 WebM 视频。" = "Wähle ein MKV-, MP4-, M4V-, MOV- oder WebM-Video.";
 "该视频格式请使用独立 SRT 输出；重新封装目前仅支持 MKV。" = "Für dieses Format bitte separate SRT-Ausgabe verwenden; Remuxing unterstützt nur MKV-Eingaben.";

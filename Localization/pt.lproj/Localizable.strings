@@ -198,10 +198,11 @@
 "子智能体协作" = "Colaboração de subagentes";
 "适合长视频，消耗更多额度。" = "Para vídeos longos; consome mais cota.";
 "动态分块，最多两个子任务；短字幕直接翻译。" = "Lotes dinâmicos, até duas subtarefas; legendas curtas são traduzidas diretamente.";
-"自动使用最低可用推理强度；字幕格式错误最多再试两次。" = "Usa o menor esforço disponível; repete erros de formato até duas vezes.";
+"默认使用最低可用推理强度，可手动调整；字幕格式错误最多再试两次。" = "O nível mínimo de raciocínio é o padrão e pode ser ajustado. Erros de formato são tentados novamente até duas vezes.";
 "2 批（并发）" = "2 lotes (em paralelo)";
 "默认每批 200 条、顺序翻译；可选两批并发。校验后保存，仅补翻失败条目，最多再试两次。额度或服务限制时暂停。" = "Padrão: 200 entradas por lote, em sequência; dois lotes paralelos opcionais. Salvar entradas validadas e repetir apenas as falhas, até duas vezes. Pausar por limites de cota ou serviço.";
-"模型列表已刷新；保留当前模型，子智能体模式使用最低可用推理强度。" = "Modelos atualizados; modelo atual mantido. Subagentes usam o menor nível de raciocínio compatível.";
+"模型列表已刷新；保留可用的推理强度选择。" = "Modelos atualizados; as opções de raciocínio compatíveis são mantidas.";
+"请刷新模型列表" = "Atualize a lista de modelos";
 "无法读取视频：%@" = "Não foi possível ler o vídeo: %@";
 "请选择 MKV、MP4、M4V、MOV 或 WebM 视频。" = "Selecione um vídeo MKV, MP4, M4V, MOV ou WebM.";
 "该视频格式请使用独立 SRT 输出；重新封装目前仅支持 MKV。" = "Use SRT separado para este formato; a remultiplexagem só aceita entrada MKV.";

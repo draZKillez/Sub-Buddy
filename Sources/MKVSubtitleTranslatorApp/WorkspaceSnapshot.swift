@@ -19,6 +19,28 @@ enum WorkspaceSnapshot {
         ])
         model.selectedTrackIndex = 2
         model.codexStatus = .loggedIn
+        if ProcessInfo.processInfo.environment["SUBBUDDY_UI_REASONING"] == "1" {
+            let data = Data(#"[{"model":"gpt-5.5","displayName":"GPT-5.5","supportedReasoningEfforts":[{"reasoningEffort":"low"},{"reasoningEffort":"medium"},{"reasoningEffort":"high"},{"reasoningEffort":"xhigh"}]}]"#.utf8)
+            guard let catalog = try? JSONDecoder().decode([CodexModelCapability].self, from: data) else { preconditionFailure("Invalid UI fixture") }
+            model.applyModelCatalog(catalog)
+            model.codexModel = CodexModel(rawValue: "gpt-5.5")
+            model.codexModelDidChange()
+            precondition(model.codexReasoningEffort == .low && model.codexSelectionIsValid)
+            model.useCodexSubagents = true
+            model.subagentModeDidChange()
+            precondition(model.codexReasoningEffort == .low)
+            model.codexReasoningEffort = .high
+            model.codexReasoningDidChange()
+            model.applyModelCatalog(catalog)
+            precondition(model.codexReasoningEffort == .high, "A refresh must preserve the user selection")
+            model.useCodexSubagents = false
+            model.subagentModeDidChange()
+            precondition(model.codexReasoningEffort == .low, "A model without none must remain valid")
+            model.useCodexSubagents = true
+            model.subagentModeDidChange()
+            precondition(model.availableReasoningEfforts == [.low, .medium, .high, .xhigh])
+            print("Reasoning UI state assertions passed")
+        }
     }
 
     static func captureWhenReady() {

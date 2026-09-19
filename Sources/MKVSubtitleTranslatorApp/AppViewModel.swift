@@ -165,6 +165,7 @@ final class AppViewModel: ObservableObject {
     private let locator: ToolLocating
     private var inspector: MKVInspector
     private var bridge: CodexBridge
+    private var codexStatusGeneration = UUID()
     private let manualSessionStore = ManualSessionStore()
     private let batchQueueStore = BatchQueueStore()
     private var translationTask: Task<Void, Never>?
@@ -444,6 +445,7 @@ final class AppViewModel: ObservableObject {
         if workflowMode == .appleLocal {
             Task { await refreshAppleTranslationAvailability() }
         }
+        if workflowMode == .automatic { updateCodexSelection(resetEffort: false) }
     }
 
     func refreshAppleTranslationAvailability() async {
@@ -478,8 +480,21 @@ final class AppViewModel: ObservableObject {
     }
 
     func codexModelDidChange() {
-        guard !isWorking else { return }
-        if subagentModeIsActive, let effort = minimumSubagentEffort { codexReasoningEffort = effort }
+        guard !isWorking, !isRefreshingModels else { return }
+        updateCodexSelection(resetEffort: true)
+    }
+
+    func codexReasoningDidChange() {
+        guard !isWorking, !isRefreshingModels else { return }
+        updateCodexSelection(resetEffort: false)
+    }
+
+    private func updateCodexSelection(resetEffort: Bool) {
+        if let effort = CodexTranslationReasoningPolicy.effort(
+            subagents: subagentModeIsActive, supported: supportedReasoningEfforts,
+            selected: resetEffort ? nil : codexReasoningEffort
+        ) { codexReasoningEffort = effort }
+        codexStatusGeneration = UUID()
         bridge = CodexBridge(codexURL: tools.codex, model: codexModel.rawValue, reasoningEffort: codexReasoningEffort)
         errorMessage = nil
         if codexStatus == .modelUnavailable || codexStatus == .quotaOrServiceUnavailable {
@@ -493,27 +508,30 @@ final class AppViewModel: ObservableObject {
         return models
     }
 
-    var availableReasoningEfforts: [CodexReasoningEffort] {
-        codexModels.first(where: { $0.model == codexModel.rawValue })?.translationEfforts ?? [.none]
+    private var supportedReasoningEfforts: [CodexReasoningEffort] {
+        if let model = codexModels.first(where: { $0.model == codexModel.rawValue }) { return model.translationEfforts }
+        // Before discovery expose only the existing conservative defaults.
+        // Once a catalog exists, a removed model must not regain fallback options.
+        guard codexModels.isEmpty, CodexModel.allCases.contains(codexModel) else { return [] }
+        return codexModel == .luna ? [.none, .low] : [.low]
     }
 
-    var minimumSubagentEffort: CodexReasoningEffort? {
-        let supported = codexModels.first(where: { $0.model == codexModel.rawValue })?.efforts
-            ?? (CodexModel.allCases.contains(codexModel) ? [.low] : [])
-        return CodexTranslationReasoningPolicy.effort(subagents: true, supported: supported)
+    var availableReasoningEfforts: [CodexReasoningEffort] {
+        CodexTranslationReasoningPolicy.options(subagents: subagentModeIsActive, supported: supportedReasoningEfforts)
     }
 
     func subagentModeDidChange() {
-        guard !isWorking else { return }
-        codexReasoningEffort = useCodexSubagents ? (minimumSubagentEffort ?? .low) : .none
-        codexModelDidChange()
+        guard !isWorking, !isRefreshingModels else { return }
+        updateCodexSelection(resetEffort: true)
     }
 
     var codexSelectionIsValid: Bool {
-        (codexModels.isEmpty || codexModels.contains(where: { $0.model == codexModel.rawValue })) &&
-        (subagentModeIsActive
-            ? minimumSubagentEffort != nil
-            : availableReasoningEfforts.contains(codexReasoningEffort))
+        !isRefreshingModels && availableReasoningEfforts.contains(codexReasoningEffort)
+    }
+
+    func applyModelCatalog(_ models: [CodexModelCapability]) {
+        codexModels = models
+        updateCodexSelection(resetEffort: false)
     }
 
     func refreshModels() async {
@@ -523,10 +541,9 @@ final class AppViewModel: ObservableObject {
         let executable = tools.codex
         do {
             let models = try await CodexModelCatalog().refresh(executable: executable)
-            guard executable == tools.codex else { return }
-            codexModels = models
-            if subagentModeIsActive { subagentModeDidChange() }
-            modelRefreshMessage = AppInterfaceLanguage.localized("模型列表已刷新；保留当前模型，子智能体模式使用最低可用推理强度。")
+            guard executable == tools.codex, !isWorking else { return }
+            applyModelCatalog(models)
+            modelRefreshMessage = AppInterfaceLanguage.localized("模型列表已刷新；保留可用的推理强度选择。")
             await refreshCodexStatus()
         } catch {
             modelRefreshMessage = AppInterfaceLanguage.localized("模型列表刷新失败。请检查连接和登录状态；若仍无效，请更新 Sub Buddy 和 Codex 后重试。")
@@ -1081,15 +1098,20 @@ final class AppViewModel: ObservableObject {
     }
 
     func refreshCodexStatus() async {
-        codexStatus = await bridge.connectionStatus()
+        let generation = UUID()
+        codexStatusGeneration = generation
+        let status = await bridge.connectionStatus()
+        guard codexStatusGeneration == generation else { return }
+        codexStatus = status
     }
 
     func refreshEnvironment() async {
         let paths = locator.locate()
+        if tools.codex != paths.codex { codexModels = []; modelRefreshMessage = "" }
         tools = paths
         inspector = MKVInspector(ffprobeURL: paths.ffprobe)
         bridge = CodexBridge(codexURL: paths.codex, model: codexModel.rawValue, reasoningEffort: codexReasoningEffort)
-        codexStatus = await bridge.connectionStatus()
+        await refreshCodexStatus()
     }
 
     func requestFFmpegInstallation() {
@@ -1904,13 +1926,12 @@ final class AppViewModel: ObservableObject {
                     : AppError.codexNotLoggedIn
             }
             if useCodexSubagents {
-                // Explicit beta mode setting, also shown in the UI. Not a
-                // fallback after an unavailable model or service error.
-                guard let effort = minimumSubagentEffort else { throw AppError.codexModelUnavailable(codexModel.rawValue) }
+                // Use the same validated selection for coordinator and children.
                 return CodexSubagentTranslationProvider(bridge: CodexBridge(
-                    codexURL: tools.codex, model: codexModel.rawValue, reasoningEffort: effort))
+                    codexURL: tools.codex, model: codexModel.rawValue, reasoningEffort: codexReasoningEffort))
             }
-            return CodexTranslationProvider(bridge: bridge)
+            return CodexTranslationProvider(bridge: CodexBridge(
+                codexURL: tools.codex, model: codexModel.rawValue, reasoningEffort: codexReasoningEffort))
         case .appleLocal:
             guard appleLocalTranslationStatus.isReady else {
                 throw AppError.localTranslationUnavailable(appleLocalTranslationStatus.displayName)

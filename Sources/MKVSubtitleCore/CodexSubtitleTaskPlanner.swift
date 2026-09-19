@@ -51,10 +51,16 @@ public enum CodexSubtitleTaskPlanner {
 }
 
 public enum CodexTranslationReasoningPolicy {
-    /// `none` is always selected when off. Availability is checked separately,
-    /// so an unsupported model cannot silently select another effort/model.
-    public static func effort(subagents: Bool, supported: [CodexReasoningEffort]) -> CodexReasoningEffort? {
-        guard subagents else { return CodexReasoningEffort.none }
-        return CodexReasoningEffort.allCases.first { $0 != .none && supported.contains($0) }
+    public static func options(subagents: Bool, supported: [CodexReasoningEffort]) -> [CodexReasoningEffort] {
+        CodexReasoningEffort.allCases.filter { supported.contains($0) && (!subagents || $0 != .none) }
+    }
+
+    /// New model/mode: lowest supported effort. Catalog refresh: retain a valid
+    /// explicit selection. Never invent `none` for models that cannot use it.
+    public static func effort(subagents: Bool, supported: [CodexReasoningEffort],
+                              selected: CodexReasoningEffort? = nil) -> CodexReasoningEffort? {
+        let available = options(subagents: subagents, supported: supported)
+        if let selected, available.contains(selected) { return selected }
+        return available.first
     }
 }

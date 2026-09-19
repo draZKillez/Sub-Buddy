@@ -66,6 +66,11 @@ private final class CatalogProcess: @unchecked Sendable {
     private var buffer = Data()
     private var bytesRead = 0
 
+    private var isStopped: Bool {
+        lock.lock(); defer { lock.unlock() }
+        return stopped
+    }
+
     init(executable: URL) {
         process.executableURL = executable
         process.arguments = ["app-server", "--listen", "stdio://"]
@@ -102,7 +107,7 @@ private final class CatalogProcess: @unchecked Sendable {
             try? input.fileHandleForWriting.close()
             stop()
         }
-        try send(["id": 1, "method": "initialize", "params": ["clientInfo": ["name": "sub_buddy", "version": "0.9.3"]]])
+        try send(["id": 1, "method": "initialize", "params": ["clientInfo": ["name": "sub_buddy", "version": Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "development"]]])
         _ = try response(id: 1)
         try send(["method": "initialized"])
         var models: [CodexModelCapability] = []
@@ -138,6 +143,7 @@ private final class CatalogProcess: @unchecked Sendable {
 
     private func response(id: Int) throws -> Data {
         while true {
+            guard !isStopped else { throw failure() }
             if let newline = buffer.firstIndex(of: 10) {
                 let line = buffer.prefix(upTo: newline)
                 let object = try JSONSerialization.jsonObject(with: line) as? [String: Any]
@@ -146,10 +152,20 @@ private final class CatalogProcess: @unchecked Sendable {
                 guard object["error"] == nil, let result = object["result"] else { throw failure() }
                 return try JSONSerialization.data(withJSONObject: result)
             }
-            let data = output.fileHandleForReading.availableData
-            bytesRead += data.count
-            guard !data.isEmpty, bytesRead <= 4 * 1_024 * 1_024 else { throw failure() }
-            buffer.append(data)
+            // A descendant can inherit stdout after the server is terminated.
+            // Poll in bounded intervals so timeout/cancellation cannot hang in
+            // availableData waiting for that descendant to close the pipe.
+            var descriptor = pollfd(fd: output.fileHandleForReading.fileDescriptor, events: Int16(POLLIN), revents: 0)
+            let ready = poll(&descriptor, 1, 100)
+            if ready == 0 || (ready < 0 && errno == EINTR) { continue }
+            guard ready > 0 else { throw failure() }
+            var bytes = [UInt8](repeating: 0, count: 65_536)
+            let count = bytes.withUnsafeMutableBytes { Darwin.read(descriptor.fd, $0.baseAddress, $0.count) }
+            if count < 0, errno == EINTR { continue }
+            guard count > 0 else { throw failure() }
+            bytesRead += count
+            guard bytesRead <= 4 * 1_024 * 1_024 else { throw failure() }
+            buffer.append(contentsOf: bytes.prefix(count))
         }
     }
 
