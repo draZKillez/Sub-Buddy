@@ -4,160 +4,32 @@
   <img src="Branding/SubBuddy-AppIcon-1024.png" width="160" alt="Sub Buddy app icon">
 </p>
 
-**把视频里的字幕提取或识别出来，翻译后生成播放器可以直接使用的 SRT。**
+## 1. 做什么 / What
 
-**Extract or recognize subtitles from video, translate them, and export a ready-to-use SRT.**
+Sub Buddy 是一个个人 vibe-coding 项目，提供 macOS 字幕提取、识别和翻译，导出单语或双语 SRT。
 
-[中文](#中文) · [English](#english)
+Sub Buddy is a personal vibe-coded project for extracting, recognizing and translating subtitles on macOS, with translation-only or bilingual SRT output.
 
-> [!NOTE]
-> 这是一个由真实使用需求推动、借助 Codex 协作开发的 vibe-coding 个人项目。维护者负责产品取舍、测试和最终判断，Codex 协助实现、重构与排错。项目仍在测试阶段，请先用可重新取得的媒体文件试用，并欢迎提交可复现的 Issue。
+## 2. 怎么用 / How
 
-## 中文
+从 [Releases](https://github.com/draZKillez/Sub-Buddy/releases/latest) 下载 DMG，将 App 拖进“应用程序”。拖入 MKV、MP4 等视频，或选择文件夹批量处理。
 
-### 它是做什么的？
+Download the DMG from [Releases](https://github.com/draZKillez/Sub-Buddy/releases/latest) and drag the app into Applications. Drop in MKV, MP4 or other supported videos, or select a folder for batch processing.
 
-Sub Buddy 是一款 macOS/iOS 字幕工具，核心功能是：
+文字字幕直接提取；图片字幕使用本地 OCR；没有字幕时，可用 Whisper 识别英语音轨。
 
-- macOS 支持 MKV、MP4、M4V、MOV、WebM，读取 SRT、ASS/SSA、WebVTT，以及 MP4/MOV 的文本字幕（mov_text），输出独立 SRT。
-- 用 Apple Vision 在本机识别 PGS、VobSub/DVD 图片字幕。
-- 用 whisper.cpp 在本机把英语音轨识别成字幕。
-- 使用手动分段、Apple 本地翻译或 Codex 翻译字幕。
-- 源语言、目标语言和界面语言分别支持英语、简体中文、西班牙语、法语、德语、日语、韩语、葡萄牙语、俄语和阿拉伯语。
-- 导出纯译文或双语 SRT；默认不修改、不覆盖原始视频。
-- macOS 版支持文件夹队列、进度保存、取消、重试和 GitHub 自动更新。
+Extract text subtitles directly, use local OCR for bitmap subtitles, or use Whisper to transcribe an English audio track when subtitles are missing.
 
-应用内嵌精简版 FFmpeg/ffprobe。macOS 安装包同时支持 Apple Silicon 和 Intel Mac。
+选择目标语言，用 Codex 自动翻译、Apple 本地翻译，或手动分段复制给 AI，再粘贴回译文。可调模型、推理强度和分段数量，支持保存进度、取消与重试。
 
-### 怎么使用？
+Choose a target language and translate automatically with Codex, locally with Apple Translation, or manually by copying each batch to an AI and pasting the translation back. Adjust the model, reasoning level and batch size; save progress, cancel or retry.
 
-#### macOS
+选择单语或双语，生成视频旁的 SRT，在播放器中加载即可，原视频保持不变。
 
-1. 从 [GitHub Releases](https://github.com/draZKillez/Sub-Buddy/releases) 下载 DMG，把 **Sub Buddy** 拖进“应用程序”。
-2. 打开应用，把视频拖进窗口；macOS 支持 MKV、MP4、M4V、MOV、WebM。
-3. 选择要处理的字幕轨道：
-   - 普通文字字幕可以直接提取。
-   - PGS/VobSub 图片字幕选择“本机 OCR”。
-   - 没有字幕时，选择英语音轨和 Whisper 模型；不知道选什么就用默认的 **Small**。
-4. 选择目标语言和翻译方式：
-   - **手动模式**：复制应用拆好的每一份字幕，交给你常用的 AI 翻译，再把完整 SRT 粘贴回来。
-   - **Apple 本地翻译**：按提示下载系统语言包，然后在设备上翻译。
-   - **Codex**：先安装 Codex CLI，点击“连接 ChatGPT”完成官方登录，再开始自动翻译；不需要 API Key。
-5. 选择“纯译文”或“双语”，点击生成 SRT。
-6. 新 SRT 默认保存在视频旁边。播放器没有自动加载时，在播放器的字幕菜单里手动选择它。
+Choose translation-only or bilingual output, generate an SRT beside the video, and load it in your player. The original video stays unchanged.
 
-原始视频不会被直接覆盖。新增视频格式目前输出独立 SRT，重新封装仅支持 MKV 输入。容器可能没有字幕，或包含暂不支持的字幕编码；烧录在画面中的硬字幕和 DRM 视频不在本次新增范围。转成 SRT 时无法保留复杂排版与定位。电影中文名、年份和每份字幕数量都是可选设置，不知道怎么填时保持默认即可。
+## 3. 原理与隐私 / Privacy
 
-macOS 自动翻译默认 **Luna／关闭额外推理／每批 200 条／顺序处理**。“子智能体协作”默认关闭，适合长视频但消耗更多额度；开启后自动采用最低可用推理强度，由主任务调度最多两个子任务动态处理，关闭后恢复 `none`。短字幕直接翻译，结果由本机校验并按原始时间轴合成，不让主任务重写译文；格式错误仅补翻失败条目，最多再试两次，额度或服务限制时暂停。
+FFmpeg 处理媒体，OCR 和语音识别在本机完成。Codex 使用官方登录，应用不读取登录凭据；字幕与上下文会发往 OpenAI，不上传视频。
 
-可点击“刷新模型列表”读取本机官方 Codex `model/list`；刷新失败不丢失当前选择，持续失败时请更新 Sub Buddy 和 Codex。不自动切换模型或翻译服务。
-
-#### iPhone / iPad
-
-1. 在 App 中选择 MKV、SRT、ASS、VTT 或 SUP 文件。
-2. 选择字幕轨道；图片字幕按提示在本机 OCR。
-3. macOS 默认每份 200 条（可修改；现有 iOS 版仍为 500），逐份复制、翻译、粘贴并保存。
-4. 所有分段完成后，导出纯译文或双语 SRT。
-
-iOS 测试版目前以单文件手动翻译为主，不包含 Codex 自动翻译、文件夹队列或 MKV 重新封装。
-
-### 它是怎么实现的？
-
-- **Swift + SwiftUI**：macOS 14+ 和 iOS 16+ 原生界面。
-- **FFmpeg/ffprobe**：检查视频、提取字幕和音频；仅 MKV 输入会在检测到 `mkvextract` 时优先使用快速提取路径。字幕提取不重新编码视频和音频。
-- **Apple Vision**：在设备上 OCR 图片字幕，图片不会上传。
-- **whisper.cpp**：在设备上识别英语音轨；模型由用户选择并按需下载。
-- **Apple Translation**：使用系统语言包进行本地翻译。
-- **Codex CLI**：通过 `codex exec` 的 stdin 发送字幕文字，读取 JSONL 结果；应用不读取 `auth.json`、浏览器 Cookie 或访问令牌。
-- **字幕校验器**：检查 ID、数量、时间轴、空正文和模型额外说明，并保存已完成进度。
-- **Sparkle + GitHub Releases**：签名检查和自动更新。
-
-只有用户主动选择 Codex 翻译时，当前字幕文字、前后文、片名和术语表才会发送给 Codex 服务。视频、音频、字幕图片、完整路径和登录凭据不会作为翻译内容发送。项目没有内置广告、遥测或自动切换到第三方翻译服务。
-
-## English
-
-### What does it do?
-
-Sub Buddy is a subtitle utility for macOS and iOS. Its main features are:
-
-- macOS supports MKV, MP4, M4V, MOV and WebM: read SRT, ASS/SSA, WebVTT and MP4/MOV timed-text tracks (`mov_text`) and export standalone SRT.
-- Recognize PGS and VobSub/DVD bitmap subtitles locally with Apple Vision.
-- Transcribe an English audio track locally with whisper.cpp.
-- Translate subtitles with manual batches, Apple on-device translation, or Codex.
-- Choose among English, Simplified Chinese, Spanish, French, German, Japanese, Korean, Portuguese, Russian, and Arabic for source, target, and interface languages.
-- Export translation-only or bilingual SRT files without modifying the original video.
-- On macOS: folder queues, resumable progress, cancellation, retries, and GitHub-based updates.
-
-A reduced FFmpeg/ffprobe build is bundled with the app. The macOS package is Universal 2 for Apple Silicon and Intel Macs.
-
-### How do I use it?
-
-#### macOS
-
-1. Download the DMG from [GitHub Releases](https://github.com/draZKillez/Sub-Buddy/releases), then drag **Sub Buddy** into Applications.
-2. Open the app and drop in a video; macOS supports MKV, MP4, M4V, MOV and WebM.
-3. Choose what to process:
-   - Extract a normal text subtitle directly.
-   - Choose local OCR for a PGS or VobSub track.
-   - If there is no subtitle, choose an English audio track and a Whisper model. Use the default **Small** model if unsure.
-4. Choose a target language and translation method:
-   - **Manual**: copy each prepared batch to your preferred AI, then paste the complete translated SRT back into the app.
-   - **Apple Translation**: approve the system language-pack download and translate on device.
-   - **Codex**: install the Codex CLI, choose “Connect ChatGPT,” finish the official sign-in, and start. No API key is required.
-5. Select translation-only or bilingual output and generate the SRT.
-6. The SRT is saved beside the video by default. If the player does not load it automatically, select it from the player's subtitle menu.
-
-The original video is never overwritten directly. Newly supported containers export standalone SRT; remuxing is available only for MKV input. A container may have no subtitles or use unsupported subtitle codecs. Burned-in subtitles and DRM video are outside this addition. SRT conversion cannot preserve complex positioning or styling. Movie title, year, and batch size are optional; the defaults are fine for most users.
-
-macOS automatic translation defaults to **Luna / no extra reasoning / 200 cues per batch / sequential processing**. Subagent collaboration is off by default: suitable for long videos, but uses more quota. Enabling it selects the lowest supported reasoning effort; disabling it restores `none`. A coordinator dispatches dynamically sized tasks to at most two children, while short subtitles translate directly. The app validates results and merges them using original timestamps; the coordinator never rewrites translations. Only failed entries are retried, up to twice; quota or service limits pause the job.
-
-“Refresh models” reads the official local Codex `model/list`. A failed refresh preserves your selection; update Sub Buddy and Codex if it persists. Models and providers never switch automatically. No API key or credential-file access is involved.
-
-#### iPhone / iPad
-
-1. Pick an MKV, SRT, ASS, VTT, or SUP file from Files.
-2. Select a subtitle track; use the on-device OCR option for bitmap subtitles.
-3. macOS defaults to 200 cues per batch (editable; the existing iOS build still defaults to 500). Copy, translate, paste, and save each batch.
-4. When every batch is complete, export a translation-only or bilingual SRT.
-
-The current iOS test build focuses on one-file manual translation. It does not include automatic Codex translation, folder queues, or MKV remuxing.
-
-### How does it work?
-
-- **Swift + SwiftUI** provide native macOS 14+ and iOS 16+ interfaces.
-- **FFmpeg/ffprobe** inspect videos and extract subtitle or audio streams; only MKV inputs prefer `mkvextract` when available. Subtitle extraction never re-encodes video or audio.
-- **Apple Vision** performs bitmap-subtitle OCR on device.
-- **whisper.cpp** transcribes English audio locally with a user-selected model.
-- **Apple Translation** uses system language packs for on-device translation.
-- **Codex CLI** receives subtitle text through `codex exec` stdin and returns JSONL. The app never reads `auth.json`, browser cookies, or access tokens.
-- **Subtitle validation** checks IDs, counts, timelines, empty text, and unwanted model explanations while saving completed work.
-- **Sparkle + GitHub Releases** provide signed updates without a dedicated server.
-
-Only the Codex translation mode sends subtitle text, context, movie-title fields, and the glossary to the Codex service. Video, audio, subtitle images, full file paths, and login credentials are not sent as translation input. The app contains no ads or telemetry and never silently switches translation providers.
-
-## Download and requirements
-
-- macOS 14 or later; macOS 15+ is required for Apple Translation.
-- Universal 2 support for Apple Silicon and Intel Mac.
-- iOS/iPadOS 16+ for the unsigned LiveContainer test IPA.
-- Current test DMGs use ad-hoc signing and are not notarized. The first launch may require approval in **System Settings → Privacy & Security**.
-
-## Build and test
-
-```sh
-zsh scripts/setup_dependencies.sh
-swift test --disable-sandbox
-zsh scripts/package_dmg.sh
-zsh scripts/package_ipa.sh
-```
-
-Pinned third-party versions, licenses, and source-relinking information are documented in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). Sparkle release setup is documented in [UPDATE_SETUP.md](UPDATE_SETUP.md).
-
-## Current limitations
-
-- DVB and XSUB bitmap-subtitle OCR is not implemented.
-- OCR and Whisper results depend on audio quality, typography, contrast, accents, and overlapping dialogue; review the SRT before relying on it.
-- Complex WebVTT REGION/STYLE/NOTE content is not fully preserved.
-- The project is still a personal test build, not a commercial or unattended production tool.
-
-When reporting an Issue, include the device, OS version, subtitle codec, expected result, actual result, and the smallest reproducible sample you can safely share. Never upload Codex login files or tokens.
+FFmpeg handles media processing, while OCR and speech recognition run locally. Codex uses official sign-in; Sub Buddy does not read login credentials. Subtitle text and context are sent to OpenAI, but video files are not uploaded.
